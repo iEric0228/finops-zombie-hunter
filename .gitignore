@@ -1,0 +1,179 @@
+# Environment files (keep examples)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+**/node_modules/
+node_modules*/
+**/node_modules*/
+# Note: package-lock.json should be committed for reproducible builds
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# Runtime
+.DS_Store
+.neon_local/
+*.tmp
+*.temp
+pids/
+*.pid
+*.seed
+*.pid.lock
+lib-cov/
+
+# IDEs
+.vscode/
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+.idea/workspace.xml
+.idea/tasks.xml
+*.swp
+*.swo
+*~
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+*.tgz
+*.tar.gz
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs_vista.db
+Thumbs.db:encryptable
+desktop.ini
+
+# AWS & Cloud
+.aws/
+credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+terraform.tfplan
+tfplan
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Keep terraform.tfvars in dev for local development
+# but exclude production secrets
+terraform.tfvars.backup
+**/prod/*.tfvars
+**/production/*.tfvars
+
+# Coverage reports
+coverage/
+*.coverage
+.nyc_output/
+junit.xml
+test-results/
+test-report/
+
+# Cache directories
+.cache/
+.parcel-cache/
+.sass-cache/
+
+# Jest and testing
+coverage/
+junit.xml
+test-results/
+
+# Database sensitive files
+*.sql.backup
+*.dump
+database/backups/
+migrations/*.sql
+
+# Kubernetes
+*.kubeconfig
+kube-config*
+k8s-secrets/
+
+# CI/CD secrets
+.github/workflows/secrets/
+deploy-keys/
+service-accounts/
+
+# Web development
+.vite/
+*.map
+*.min.js
+*.min.css
+
+# Docker
+docker-compose.override.yml
+postgres_data/
+mysql_data/
+redis_data/
+volumes/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*~
+.#*
+\#*#
+
+# Archive files
+*.zip
+*.tar
+*.rar
+*.7z
+
+#UI
+.shared
+.github/prompts/
+
+# Monitoring data (local development)
+monitoring/loki/
+monitoring/mimir/
+monitoring/tempo/
+monitoring/promtail/
+monitoring/otel/
+prometheus_data/
+grafana_lgtm_data/
+loki_data/
+
+# Package manager lock files (keep only package-lock.json)
+package-lock*.json
+!package-lock.json
+yarn.lock
+pnpm-lock.yaml

@@ -1,0 +1,58 @@
+name: "Code Quality & Linting"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs: 
+    terraform-lint:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+            
+            - name: Setup Terraform
+              uses : hashicorp/setup-terraform@v3
+
+            - name: Terraform Format Check
+              run: terraform fmt -check -recursive
+              working-directory: ./terraform/environments/dev
+            
+            - name: Terraform Validate
+              run: terraform validate
+              working-directory: ./terraform/environments/dev
+
+            - name: tfsec (Security Linter)
+              uses: aquasecurity/tfsec-pr-commenter-action@v1.2.0
+              with:
+                  working_directory: ./terraform/environments/dev
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+
+    python-lint:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.9'
+
+            - name: Install dependencies
+              run: |
+                 python -m pip install --upgrade pip
+                 pip install flake8
+        
+            - name: Black (Formatting Check)
+              run: |
+                 black --check src/hunter.py
+
+            - name: Run Flake8 Linter
+              run: |
+                flake8 src/hunter.py --count --select=E9,F63,F7,F82 --show-source --statistics
