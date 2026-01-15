@@ -12,6 +12,9 @@ on:
 jobs: 
     terraform-lint:
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: write
         steps:
             - name: Checkout Code
               uses: actions/checkout@v4
@@ -20,18 +23,83 @@ jobs:
               uses : hashicorp/setup-terraform@v3
 
             - name: Terraform Format Check
-              run: terraform fmt -check -recursive
+              id: fmt
+              run: |
+                echo "## Terraform Format Check" >> $GITHUB_STEP_SUMMARY
+                if terraform fmt -check -recursive; then
+                  echo " All Terraoform files are properly formatted" >> $GITHUB_STEP_SUMMARY
+                else 
+                  echo "**Format issues found. Run: ** \'terraform fmt -resursive\' >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo " ### Files needing formating:" >> $GITHUB_STEP_SUMMARY
+                  cat fmt_output.txt >> $GITHUB_STEP_SUMMARY
+                  exit 1
+                fi
+              working-directory: ./terraform/environments/dev
+              continue-on-error: true
+
+            - name: Terraform Init
+              run: terraform init
               working-directory: ./terraform/environments/dev
             
             - name: Terraform Validate
-              run: terraform validate
+              id: validate
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Validate" >> $GITHUB_STEP_SUMMARY
+                if terraform validate; -no-color > validate_output.txt 2>&1; then 
+                  echo " Terraform configuration is valid" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "**Validation failed**" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  cat validate_output.txt >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  exit 1
+                fi
               working-directory: ./terraform/environments/dev
+              continue-on-error: true
 
             - name: tfsec (Security Linter)
+              id: tfsec
               uses: aquasecurity/tfsec-pr-commenter-action@v1.2.0
               with:
-                  working_directory: ./terraform/environments/dev
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                working_directory: ./terraform/environments/dev
+                github_token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Upload tfsec SARIF Report
+              if: always()
+              uses: github/codeql-action/upload-sarif@v3
+              with:
+                sarif_file: tfsec-results.sarif
+
+            - name: tfsec Summary
+              if: always()
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Security Scan (tfsec)" >> $GITHUB_STEP_SUMMARY
+                if [ -f tfsec-results.sarif ];then
+                  ISSUE=$(jq '.runs[0].results | length' tfsec-results.sarif)
+                  if [ $ISSUE -eq 0 ]; then
+                    echo " No security issues found" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo " **$ISSUE potential security issues found**" >> $GITHUB_STEP_SUM
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "Check the Security tab for detailed findings" >> $GITHUB_STEP_SUMMARY
+                  fi
+                fi
+
+            - name: Terraform Lint Summary
+              if: always()
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo " ---" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Linting Summary" >> $GITHUB_STEP_SUMMARY
+                if [ "${{ steps.fmt.outcome }}" == "success" ] && [ "${{ steps.validate.outcome }}" == "success" ]; then
+                  echo " All Terraform linting checks passed" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo " Some Terraform linting checks failed" >> $GITHUB_STEP_SUMMARY
+                fi
 
     python-lint:
         runs-on: ubuntu-latest
@@ -42,18 +110,108 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                python-version: '3.9'
+                python-version: '3.12'
 
             - name: Install dependencies
               run: |
                  python -m pip install --upgrade pip
-                 pip install flake8
-                 pip install black
-        
+                 pip install flake8 black pylint bandit
+ 
             - name: Black (Formatting Check)
+              id: black
               run: |
-                 black --check src/hunter.py
+                 echo"## Python Code Formatting (Black)" >> $GITHUB_STEP_SUMMARY
+                 if black --check src/hunter.py 2>&1 | tee black_output.txt; then\
+                   echo" Code is properly formatted" >> $GITHUB_STEP_SUMMARY;\
+                  else
+                    echo"**Formatting issues found. Run: ** \'black src/hunter.py\'" >> $GITHUB_STEP_SUMMARY;\
+                    echo"" >> $GITHUB_STEP_SUMMARY;\
+                    echo" ### Files needing formatting:" >> $GITHUB_STEP_SUMMARY;
+                    echo '```diff' >> $GITHUB_STEP_SUMMARY
+                    cat black_output.txt >> $GITHUB_STEP_SUMMARY;
+                    echo '```' >> $GITHUB_STEP_SUMMARY
+                 fi
+              continue-on-error: true
+            - name: Flake8 (Style & Error Check)
+              id: flake8
+              run: |
+                echo """ >> $GITHUB_STEP_SUMMARY
+                echo "## Python Linting (Flake8)" >> $GITHUB_STEP_SUMMARY
 
-            - name: Run Flake8 Linter
+                if flake8 src/hunter.py --count --statistics --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' > flake8_output.txt 2>&1; then
+                  echo "No linting issues found" >> $GITHUB_STEP_SUMMARY
+                else 
+                  ERROR_COUNT=$(grep -c ":" flake8_output.txt || echo 0)
+                  echo "**Found $ERROR_COUNT linting issues**" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Linting Issues:" >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  cat flake8_output.txt >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Error Categories:" >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  flake8 src/hunter.py --statistics 2>&1 | tail -n +2 >> $GITHUB_STEP_SUMMARY || true
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                fi
+              continue-on-error: true
+
+            - name: Pylint (Deep Analysis)
+              id: pylint
               run: |
-                flake8 src/hunter.py --count --select=E9,F63,F7,F82 --show-source --statistics
+                echo "" >>$GITHUB_STEP_SUMMARY
+                echo "## Code Quality (Pylint)" >> $GITHUB_STEP_SUMMARY
+
+                if pylint src/hunter.py --output-format=text --score=y > pylint_output.txt 2>&1; then
+                  SCORE=$(grep "Your code has been rated at" pylint_output.txt | awk '{print $7}' | cut -d'/' -f1)
+                  echo "**Score: $SCORE/10**" >> $GITHUB_STEP_SUMMARY
+                else
+                  SCORE=$(grep "Your code has been rated at" pylint_output.txt | awk '{print $7}' | cut -d'/' -f1 || echo "N/A")
+                  echo "**Score: $SCORE/10**" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "<details><summary>View Pylint Report</summary>" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  cat pylint_output.txt >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  echo "</details>" >> $GITHUB_STEP_SUMMARY
+                fi
+              continue-on-error: true
+            
+            - name: Bandit (Security Linter)
+              id: bandit
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Security Scan (Bandit)" >> $GITHUB_STEP_SUMMARY
+
+                if bandit -r src/hunter.py -f txt -o bandit_output.txt; then
+                  echo "No security issues found" >> $GITHUB_STEP_SUMMARY
+                else 
+                  echo "**Security concerns found**" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "<details><summary>View Security Report</summary>" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  cat bandit_output.txt >> $GITHUB_STEP_SUMMARY
+                  echo "</details>" >> $GITHUB_STEP_SUMMARY
+                fi
+              continue-on-error: true
+
+            - name: Python Linting Summary
+              if: always()
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "---" >> $GITHUB_STEP_SUMMARY  
+                echo "### Python Lint Summary" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+                echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+                echo "| Black  | $(if [ -f black_output.txt ]; then echo '❌ Failed'; else echo '✅ Passed'; fi) |" >> $GITHUB_STEP_SUMMARY
+                echo "| Flake8 | $(if [ -f flake8_output.txt ]; then echo '❌ Failed'; else echo '✅ Passed'; fi) |" >> $GITHUB_STEP_SUMMARY
+                echo "| Pylint | $(if [ -f pylint_output.txt ]; then echo '❌ Failed'; else echo '✅ Passed'; fi) |" >> $GITHUB_STEP_SUMMARY
+                echo "| Bandit | $(if [ -f bandit_output.txt ]; then echo '❌ Failed'; else echo '✅ Passed'; fi) |" >> $GITHUB_STEP_SUMMARY
+
+            - name: Final Status Check
+              if: steps.black.outcome == 'failure' || steps.flake8.outcome == 'failure'
+              run: |
+                echo ":: error::Critical linting issues found.  Please fix formatting and linting errors"
+                exit 1

@@ -1,40 +1,218 @@
 name: "Terraform Deploy"
 
 on:
-  #push:
-   # branches:
-    #  - main
+  push:
+    branches:
+      - main
+    paths:
+    - 'terraform/**'
+    - 'src/**'  
+    - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
         description: 'Deployment Environment'
         required: true
-        default: 'prod'
-
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      action:
+        description: 'Terraform Action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
 permissions:
   contents: read
   id-token: write
+  pull-requests: write
 
 jobs:
     terraform:
         runs-on: ubuntu-latest
+        environment: ${{ github.event.inputs.environment || 'dev' }}
+        env:
+          TF_WORKSPACE: ${{ github.event.inputs.environment || 'dev' }}
+          TF_ACTION: .terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+
         steps:
             - name: Checkout Code
               uses: actions/checkout@v4
 
+            - name: Set up Terraform
+              uses: hashicorp/setup-terraform@v3
+              with:
+                terraform_version: 1.7.5
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@v4
               with:
                   role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
                   aws-region: us-east-1
-            - name: Terraform Init
-              run: terraform init
+                  role-session-name: GitHubActionsTerraformDeploy
+            - name: Verify AWS Identity 
+              run: |
+                echo "## AWS Identity Verification" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "** Account: ** $(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_STEP_SUMMARY
+                echo "** User/Role: ** $(aws sts get-caller-identity --query Arn --output text)" >> $GITHUB_STEP_SUMMARY
+                echo "** Region: ** ${{ secrets.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
 
-            - name: Terraform Plan
-              run: terraform plan
+            - name: Terraform Format Check
+              id: fmt
+              run: terraform fmt -check -recursive
               working-directory: ./terraform/environments/dev
+              continue-on-error: true
+            - name: Terraform Init
+              id: init
+              run: |
+                echo "## Terraform initialization" >> $GITHUB_STEP_SUMMARY
+                terraform init -input=false
+                echo "Backend initialized successfully" >> $GITHUB_STEP_SUMMARY
+              working-directory: ./terraform/environments/dev
+
+            - name: Terraform Validate
+              id: validate
+              run: |
+                echo "## Terraform validation" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Validation" >> $GITHUB_STEP_SUMMARY
+                terraform validate -no-color
+                echo "Configuration validated successfully" >> $GITHUB_STEP_SUMMARY
+              working-directory: ./terraform/environments/dev
+            - name: Terraform Plan
+              id: plan
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                terraform plan -input=false -no-color -out=tfplan | tee plan_output.txt
+
+                echo "<details><summary>View Full Plan</summary>" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                cat plan_output.txt >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "### Planned Changes:" >> $GITHUB_STEP_SUMMARY
+                grep -E "Plan: | No changes" plan_output.txt | tail -1 >> $GITHUB_STEP_SUMMARY
+              working-directory: ./terraform/environments/dev
+
+            - name: Save Plan Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                name: terraform-plan-${{ github.event.inputs.environment || 'dev' }}-${{ github.run_number }}
+                path: ./terraform/environments/dev/plan_output.txt
+                retention-days: 7
 
             - name: Terraform Apply
-              if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-              run: terraform apply -auto-approve
+              id: apply
+              if: |
+                (github.event.inputs.action == 'apply' && github.event_name == 'workflow_dispatch') ||
+                (github.ref == 'refs/heads/main' && github.event_name == 'push')
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Apply" >> $GITHUB_STEP_SUMMARY
+                echo "**Environment:** ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+                echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+                echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+
+                terraform apply -input=false -auto-approve tfplan | tee apply_output.txt
+
+                echo "<details><summary>View Full Apply Output</summary>" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                cat apply_output.txt >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
               working-directory: ./terraform/environments/dev
+
+            - name: Terraform Destroy
+              id: destroy
+              if: github.event.inputs.action == 'destroy' && github.event_name == 'workflow_dispatch'
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Destroy" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo " **WARNING: Destroying infrastructure in environment: ${{ github.event.inputs.environment || 'dev' }}**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+
+                terraform destroy -input=false -auto-approve | tee destroy_output.txt
+
+                echo "<details><summary>View Destroy Output</summary>" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                cat destroy_output.txt >> $GITHUB_STEP_SUMMARY
+                echo '```' >> $GITHUB_STEP_SUMMARY
+                echo "</details>" >> $GITHUB_STEP_SUMMARY
+              working-directory: ./terraform/environments/dev
+
+            - name: Terraform Output
+              id: output
+              if: steps.apply.outcome == 'success'
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                if terraform output -json > outputs.json 2> /dev/null; then
+                  echo '```json' >> $GITHUB_STEP_SUMMARY
+                  cat outputs.json >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "No outputs available." >> $GITHUB_STEP_SUMMARY
+                fi
+              working-directory: ./terraform/environments/dev
+              continue-on-error: true
+            
+            - name: Extract Lambda Function Name
+              id: lambda-info
+              if: steps.apply.outcome == 'success'
+              run: |
+                FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || echo "")
+                if [ -n "$FUNCTION_NAME" ]; then
+                  echo "function_name-$FUNCTION_NAME" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "## Quick Links" >> $GITHUB_STEP_SUMMARY
+                  echo " - **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=${{ secrets.AWS_REGION }}#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **CloudWatch Logs:** [View Logs](https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/%252Faws%252Flambda%252F$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
+                fi
+              working-directory: ./terraform/environments/dev
+              continue-on-error: true
+
+            - name: Deployment Summary
+              if: always()
+              run: |
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "---" >> $GITHUB_STEP_SUMMARY
+                echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+                echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+                echo "| Format Check  |" ${{steps.fmt.outcome == 'success' && '✅ Passed' || '❌ Failed' }} " |" >> $GITHUB_STEP_SUMMARY
+                echo "| Init | ${{ steps.init.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+                echo "| Validate | ${{ steps.validate.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+                echo "| Plan | ${{ steps.plan.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+                echo "| Apply | ${{ steps.apply.outcome == 'success' && '✅' || steps.apply.outcome == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "**Workflow Run:** [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+
+            - name: Notify on Failure
+              if: failure()
+              run: |
+                echo "::error::Terraform deployment failed. Check the logs above for details."
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "---" >> $GITHUB_STEP_SUMMARY
+                echo "## ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Please review the error logs and fix the issues before retrying." >> $GITHUB_STEP_SUMMARY
