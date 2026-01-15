@@ -1,7 +1,7 @@
 terraform {
     backend "s3" {
         bucket         = "finops-zombie-hunter"
-        key           = "dev/terraform.tfstate"
+        key            = "dev/terraform.tfstate"
         region         = "us-east-1"
         dynamodb_table = "terraform-lock-finops"
         encrypt        = true
@@ -11,8 +11,6 @@ terraform {
 provider "aws" {
     region = "us-east-1"
 }
-
-
 
 module "IAM" {
     source = "../../modules/IAM"
@@ -32,8 +30,8 @@ module "lambda" {
     }
 }
 
-module "event" {weekly_cleanup
-    source = "../../terraform/modules/event"
+module "event" {
+    source = "../../modules/event"
     rule_name = "FinOps-Zombie-Hunter-Schedule-Dev"
     schedule_expression = "cron(0 0 ? * SUN *)"
     lambda_function_arn = module.lambda.lambda.lambda_function_arn
