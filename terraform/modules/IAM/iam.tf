@@ -8,7 +8,7 @@ resource "aws_iam_role" "hunter_policy" {
             {
                 Actions = [
                     "ebs:DescribeVolumes",
-                    "ebs:DeleteVolume"
+                    "ebs:DeleteVolume",
                     "rds:DescribeDBInstances",
                     "rds:DeleteDBInstance",
                     "cloudwatch:GetMetricData",

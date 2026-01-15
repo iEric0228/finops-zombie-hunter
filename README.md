@@ -3,7 +3,6 @@
 [![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat-square&logo=terraform&logoColor=white)](https://terraform.io/)
 [![Infrastructure](https://img.shields.io/badge/Infrastructure-as%20Code-blue?style=flat-square)]()
 
-
 # FinOps Zombie Hunter
 **An automated AWS cost-optimization engine that identifies and cleans up unattached resources**
 
@@ -12,7 +11,7 @@
 ## The Business Problem
 Cloud waste costs companies billions. Developers often delete EC2 instances but forget to delete the associated EBS, NAT gateway, RDS Database, Elastic IPs leading to "Zombie" resources that continue to bill the company every month.
 
-**This project automates the identification and (optional) deletion of these resources(), providing clear visibility into monthly cost savings.**
+**This project automates the identification and (optional) deletion of these resources, providing clear visibility into monthly cost savings.**
 
 ## Tech Stack
 - **Cloud:** AWS (Lambda, EventBridge, CloudWatch)
@@ -20,42 +19,20 @@ Cloud waste costs companies billions. Developers often delete EC2 instances but 
 - **Logic:** Python 3.12 (Boto3 SDK, OS)
 - **CI/CD:** GitHub Actions (OIDC Authentication)
 
-## File Structure 
-.
-├── README.md
-├── share
-│   └── design.png
-├── src
-│   ├── hunter.py
-│   └── requirements.txt
-└── terraform
-    ├── environments
-    │   └── dev
-    │       ├── backend.tf
-    │       ├── main.tf
-    │       └── variables.tf
-    └── modules
-        ├── IAM
-        │   └── iam.tf
-        ├── event
-        │   ├── main.tf
-        │   └── variables.tf
-        └── lambda
-            ├── main.tf
-            ├── output.tf
-            └── variables.tf
+## File Structure
+![Alt Text](./share/structure.png)
 
 ## Architecture Design
 ![Alt Text](./share/design.png)
 
 The system follows a modular, serverless architecture:
-1.  **Trigger:** EventBridge Rule configured with `cron(0 0 ? * SUN *)`.
-2.  **Compute:** AWS Lambda running Python 3.12, modularized to scan multiple services.
-3.  **Cross-Region Logic:** The script dynamically fetches all enabled AWS regions and performs a local audit in each.
-4.  **Data-Driven Audit:** Unlike simple status checks, the engine queries **CloudWatch Metrics** to identify idle RDS and NAT Gateways based on actual usage patterns.
-5.  **State Management:** Terraform Remote State is persisted in S3 with DynamoDB for state locking to ensure CI/CD integrity.
+1. **Trigger:** EventBridge Rule configured with `cron(0 0 ? * SUN *)`.
+2. **Compute:** AWS Lambda running Python 3.12, modularized to scan multiple services.
+3. **Cross-Region Logic:** The script dynamically fetches all enabled AWS regions and performs a local audit in each.
+4. **Data-Driven Audit:** Unlike simple status checks, the engine queries **CloudWatch Metrics** to identify idle RDS and NAT Gateways based on actual usage patterns.
+5. **State Management:** Terraform Remote State is persisted in S3 with DynamoDB for state locking to ensure CI/CD integrity.
 
-## Senior-Level Best Practices
+## Best Practices
 - **Modular IaC:** Infrastructure is split into reusable modules (`lambda`, `events`, `iam`), allowing for independent scaling and testing.
 - **Identity Federation (OIDC):** Eliminated static AWS credentials by using GitHub Actions as a trusted OIDC identity provider.
 - **Shift-Left Security:** Integrated `tfsec` and `flake8` into the CI pipeline to catch security misconfigurations and code smells before deployment.
@@ -65,25 +42,45 @@ The system follows a modular, serverless architecture:
 ## Sample Execution Log
 ```json
 {
-  "status": "Success",
-  "total_potential_savings": "$145.20/mo",
-  "breakdown": {
-    "EBS": "$12.00",
-    "RDS": "$100.00",
-    "NAT_GW": "$32.40",
-    "Elastic_IP": "$0.80"
-  }
+  "timestamp": "2024-01-15T00:00:00Z",
+  "regions_scanned": ["us-east-1", "us-west-2", "eu-west-1"],
+  "zombie_resources": {
+    "ebs_volumes": 12,
+    "nat_gateways": 2,
+    "elastic_ips": 5,
+    "rds_instances": 1
+  },
+  "estimated_monthly_savings": "$347.50"
 }
+```
 
 ## Getting Started
-1. **Prerequisites:** Install AWS CLI, Terraform, and Python 3.12.
-2. **Bootstrap:** Create an S3 bucket and DynamoDB table for the backend.
-3. **Deploy:**
-   ```bash
-   cd infrastructure
+
+### Prerequisites
+- AWS Account with appropriate IAM permissions
+- Terraform >= 1.0
+- Python 3.12+
+- GitHub account for CI/CD
+
+### Installation
+1. Clone the repository:
+```bash
+   git clone https://github.com/iEric0228/finops-zombie-hunter.git
+   cd finops-zombie-hunter
+```
+
+2. Configure AWS credentials or set up OIDC authentication
+
+3. Initialize Terraform:
+```bash
    terraform init
-   terraform apply -auto-approve
-   ---
+```
+
+4. Deploy the infrastructure:
+```bash
+   terraform apply
+```
+   
 
 ### **The Final Step: The Launch**
 
@@ -101,4 +98,3 @@ The system follows a modular, serverless architecture:
 - GitHub: [@iEric0228](https://github.com/iEric0228)
 - Email: ericchiu0228@gmail.com
 
----

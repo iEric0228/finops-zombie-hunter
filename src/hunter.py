@@ -1,5 +1,6 @@
 import boto3
 import os
+import black
 from datetime import datetime, timedelta
 
 # --- 1. RDS Hunter ---

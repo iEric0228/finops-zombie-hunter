@@ -7,7 +7,7 @@ data "archive_file" "lambda_zip" {
 }
 
 # 2. Create the Lambda Function 
-resource "aws_lambda_function" "zombie_hunter" {
+resource "aws_lambda_function" "Finops_Zombie_Hunter" {
     filename         = data.archive_file.lambda_zip.output_path
     function_name    = var.function_name
     role             = var.i_am_role_arn
