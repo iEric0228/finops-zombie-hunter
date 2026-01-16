@@ -27,6 +27,10 @@ jobs:
                 role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
                 aws-region: us-east-1
 
+            - name: Install tfsec
+              run: |
+                curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+
             - name: Setup Terraform
               uses : hashicorp/setup-terraform@v3
 
@@ -37,9 +41,9 @@ jobs:
                 if terraform fmt -check -recursive; then
                   echo " All Terraform files are properly formatted" >> $GITHUB_STEP_SUMMARY
                 else
-                  echo "**Format issues found. Run: ** \'terraform fmt -resursive\' >> $GITHUB_STEP_SUMMARY
+                  echo "**Format issues found. Run: ** \'terraform fmt -recursive\' >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo " ### Files needing formating:" >> $GITHUB_STEP_SUMMARY
+                  echo " ### Files needing formatting:" >> $GITHUB_STEP_SUMMARY
                   cat fmt_output.txt >> $GITHUB_STEP_SUMMARY
                   exit 1
                 fi
@@ -123,11 +127,6 @@ jobs:
               run: |
                  python -m pip install --upgrade pip
                  pip install flake8 black pylint bandit 
-            - name: Install tfsec
-              run: |
-                wget https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64 -O /usr/local/bin/tfsec
-                chmod +x /usr/local/bin/tfsec
- 
             - name: Black (Formatting Check)
               id: black
               run: |

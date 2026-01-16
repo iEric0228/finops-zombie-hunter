@@ -17,9 +17,9 @@ module "IAM" {
 }
 
 module "lambda" {
-  source           = "../../modules/lambda"
-  function_name    = "FinOps-Zombie-Hunter"
-  i_am_role_arn    = module.IAM.lambda_exec_role_arn
+  source        = "../../modules/lambda"
+  function_name = "FinOps-Zombie-Hunter"
+  i_am_role_arn = module.IAM.lambda_exec_role_arn
   env_vars = {
     "ENV" = "dev"
   }
