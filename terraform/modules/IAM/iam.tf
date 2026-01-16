@@ -37,6 +37,8 @@ resource "aws_iam_role_policy" "lambda_exec_policy" {
           "ec2:DeleteNatGateway",
           "ec2:DescribeAddresses",
           "ec2:ReleaseAddress",
+          "ec2:DescribeRegions",
+          "ec2:DescribeVolumes",
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
@@ -45,6 +47,28 @@ resource "aws_iam_role_policy" "lambda_exec_policy" {
       }
     ]
   })
+}
+
+resource "aws_iam_policy" "lambda_ec2_describe_regions" {
+  name        = "lambda-ec2-describe-regions"
+  description = "Allow Lambda to describe EC2 regions"
+  policy      = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          "ec2:DescribeRegions"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_ec2_describe_regions" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = aws_iam_policy.lambda_ec2_describe_regions.arn
 }
 
 output "lambda_exec_role_arn" {

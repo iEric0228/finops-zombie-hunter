@@ -12,6 +12,7 @@ resource "aws_lambda_function" "Finops_Zombie_Hunter" {
   function_name    = var.function_name
   role             = var.i_am_role_arn
   handler          = "hunter.lambda_handler"
+  timeout          = 150
   runtime          = "python3.8"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 

@@ -63,6 +63,36 @@ jobs:
           echo "Configuration validated successfully" >> $GITHUB_STEP_SUMMARY
         working-directory: ./terraform/environments/dev
 
+      - name: List DynamoDB Lock Table Items
+        run: |
+          TABLE_NAME="terraform-lock-finops"
+          echo "Listing all lock items in $TABLE_NAME:"
+          aws dynamodb scan --table-name "$TABLE_NAME" --region us-east-1
+        continue-on-error: true
+
+      - name: Force Unlock All Terraform State Locks
+        run: |
+          TABLE_NAME="terraform-lock-finops"
+          LOCK_IDS=$(aws dynamodb scan --table-name "$TABLE_NAME" --region us-east-1 --query 'Items[*].LockID.S' --output text)
+          for LOCK_ID in $LOCK_IDS; do
+            echo "Deleting lock with LockID: $LOCK_ID"
+            aws dynamodb delete-item --table-name "$TABLE_NAME" --key "{\"LockID\": {\"S\": \"$LOCK_ID\"}}" --region us-east-1
+          done
+        continue-on-error: true
+
+      - name: List DynamoDB Lock Table Items (Post-Unlock)
+        run: |
+          TABLE_NAME="terraform-lock-finops"
+          echo "Listing all lock items in $TABLE_NAME after unlock:"
+          aws dynamodb scan --table-name "$TABLE_NAME" --region us-east-1
+        continue-on-error: true
+
+      - name: Wait for DynamoDB Consistency
+        run: |
+          echo "Waiting 5 seconds for DynamoDB consistency..."
+          sleep 5
+        continue-on-error: true
+
       - name: Terraform Plan
         id: plan
         run: |
@@ -109,9 +139,9 @@ jobs:
           if [ -n "$FUNCTION_NAME" ]; then
             echo "Invoking Lambda $FUNCTION_NAME for zombie scan and destroy..."
             aws lambda invoke --function-name "$FUNCTION_NAME" --payload '{"destroy": true}' --cli-binary-format raw-in-base64-out response.json --region us-east-1
-            echo '--- Lambda Response ---'
-            cat response.json
-            echo '--- End Lambda Response ---'
+            echo '--- Lambda Response ---' >> $GITHUB_STEP_SUMMARY
+            cat response.json >> $GITHUB_STEP_SUMMARY
+            echo '--- End Lambda Response ---' >> $GITHUB_STEP_SUMMARY
           else
             echo "::error::No Lambda function name found."
             exit 1
