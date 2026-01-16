@@ -2,7 +2,7 @@
 # 1. Package the Python code into a ZIP
 data "archive_file" "lambda_zip" {
     type = "zip"
-    source_file = "${path.module}../../src/hunter.py"
+    source_file = "${path.root}/src/hunter.py"
     output_path = "${path.module}hunter.zip"
 }
 

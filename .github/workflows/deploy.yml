@@ -19,6 +19,11 @@ on:
           - dev
           - staging
           - prod
+      auto_destroy_after_minutes:
+        description: 'Destroy after N minutes(optional)'
+        required: false
+        default: ''
+        type: string
       action:
         description: 'Terraform Action'
         required: true
