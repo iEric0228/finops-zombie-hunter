@@ -94,7 +94,7 @@ jobs:
                   if [ $ISSUE -eq 0 ]; then
                     echo " No security issues found" >> $GITHUB_STEP_SUMMARY
                   else
-                    echo " **$ISSUE potential security issues found**" >> $GITHUB_STEP_SUM
+                    echo " **$ISSUE potential security issues found**" >> $GITHUB_STEP_SUMMARY
                     echo "" >> $GITHUB_STEP_SUMMARY
                     echo "Check the Security tab for detailed findings" >> $GITHUB_STEP_SUMMARY
                   fi
@@ -127,25 +127,29 @@ jobs:
               run: |
                  python -m pip install --upgrade pip
                  pip install flake8 black pylint bandit 
+
+            - name: Install Python dependencies
+              run: pip install -r src/requirements.txt
+
             - name: Black (Formatting Check)
               id: black
               run: |
                  echo "## Python Code Formatting (Black)" >> $GITHUB_STEP_SUMMARY
                  if black --check src/hunter.py 2>&1 | tee black_output.txt; then
-                   echo" Code is properly formatted" >> $GITHUB_STEP_SUMMARY;\
-                  else
-                    echo"**Formatting issues found. Run: ** \'black src/hunter.py\'" >> $GITHUB_STEP_SUMMARY;\
-                    echo"" >> $GITHUB_STEP_SUMMARY;\
-                    echo" ### Files needing formatting:" >> $GITHUB_STEP_SUMMARY;
-                    echo '```diff' >> $GITHUB_STEP_SUMMARY
-                    cat black_output.txt >> $GITHUB_STEP_SUMMARY;
-                    echo '```' >> $GITHUB_STEP_SUMMARY
+                   echo " Code is properly formatted" >> $GITHUB_STEP_SUMMARY
+                 else
+                   echo "**Formatting issues found. Run: ** 'black src/hunter.py'" >> $GITHUB_STEP_SUMMARY
+                   echo "" >> $GITHUB_STEP_SUMMARY
+                   echo " ### Files needing formatting:" >> $GITHUB_STEP_SUMMARY
+                   echo '```diff' >> $GITHUB_STEP_SUMMARY
+                   cat black_output.txt >> $GITHUB_STEP_SUMMARY
+                   echo '```' >> $GITHUB_STEP_SUMMARY
                  fi
               continue-on-error: true
             - name: Flake8 (Style & Error Check)
               id: flake8
               run: |
-                echo """ >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
                 echo "## Python Linting (Flake8)" >> $GITHUB_STEP_SUMMARY
 
                 if flake8 src/hunter.py --count --statistics --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' > flake8_output.txt 2>&1; then

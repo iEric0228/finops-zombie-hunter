@@ -2,9 +2,11 @@
 Zombie Hunter Lambda: Identifies and optionally deletes unused AWS resources for cost optimization.
 All destructive actions are protected by dry_run mode.
 """
+
 import os
 from datetime import datetime, timedelta
 import boto3
+
 
 # --- 1. RDS Hunter ---
 def check_rds_zombies(rds_client, cw_client, dry_run):
@@ -22,7 +24,9 @@ def check_rds_zombies(rds_client, cw_client, dry_run):
             Period=86400,
             Statistics=["Average"],
         )
-        if not metrics["Datapoints"] or all(d["Average"] == 0 for d in metrics["Datapoints"]):
+        if not metrics["Datapoints"] or all(
+            d["Average"] == 0 for d in metrics["Datapoints"]
+        ):
             instance_saving = 100
             savings += instance_saving
             print(
@@ -32,6 +36,7 @@ def check_rds_zombies(rds_client, cw_client, dry_run):
             if not dry_run:
                 print(f"Would delete RDS instance: {db_id}")
     return savings
+
 
 # --- 2. NAT Gateway Hunter ---
 def check_nat_gw_zombies(ec2_client, cw_client, dry_run):
@@ -61,6 +66,7 @@ def check_nat_gw_zombies(ec2_client, cw_client, dry_run):
                 print(f"Would delete NAT Gateway: {nat_id}")
     return savings
 
+
 # --- 3. Elastic IP Hunter ---
 def check_elastic_ip_zombies(ec2_client, dry_run):
     """Check for unattached Elastic IPs."""
@@ -76,6 +82,7 @@ def check_elastic_ip_zombies(ec2_client, dry_run):
             if not dry_run:
                 print(f"Would release Elastic IP: {eip['PublicIp']}")
     return savings
+
 
 # --- 4. EBS Volume Hunter ---
 def check_ebs_zombies(ec2_client, dry_run):
@@ -100,7 +107,9 @@ def lambda_handler(event, context):  # pylint: disable=unused-argument
     """AWS Lambda entrypoint for zombie resource scan."""
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
     initial_ec2 = boto3.client("ec2")
-    regions = [region["RegionName"] for region in initial_ec2.describe_regions()["Regions"]]
+    regions = [
+        region["RegionName"] for region in initial_ec2.describe_regions()["Regions"]
+    ]
     report = {"EBS": 0, "RDS": 0, "NAT_GW": 0, "Elastic_IP": 0, "total_savings": 0}
     for region in regions:
         print(f"--- Scanning region: {region} ---")
@@ -111,9 +120,9 @@ def lambda_handler(event, context):  # pylint: disable=unused-argument
         report["RDS"] += check_rds_zombies(rds, cw, dry_run)
         report["NAT_GW"] += check_nat_gw_zombies(ec2, cw, dry_run)
         report["Elastic_IP"] += check_elastic_ip_zombies(ec2, dry_run)
-    report["total_savings"] = sum([
-        report["EBS"], report["RDS"], report["NAT_GW"], report["Elastic_IP"]
-    ])
+    report["total_savings"] = sum(
+        [report["EBS"], report["RDS"], report["NAT_GW"], report["Elastic_IP"]]
+    )
     summary = (
         f"Hunt Complete! Total Potential Savings: ${report['total_savings']:.2f}/mo"
     )
