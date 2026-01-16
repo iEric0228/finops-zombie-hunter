@@ -52,7 +52,7 @@ jobs:
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@v4
               with:
-                  role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+                  role-to-assume: ${{secrets.AWS_ROLE_ARN }}
                   aws-region: us-east-1
                   role-session-name: GitHubActionsTerraformDeploy
             - name: Verify AWS Identity 
@@ -61,7 +61,7 @@ jobs:
                 echo "" >> $GITHUB_STEP_SUMMARY
                 echo "** Account: ** $(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_STEP_SUMMARY
                 echo "** User/Role: ** $(aws sts get-caller-identity --query Arn --output text)" >> $GITHUB_STEP_SUMMARY
-                echo "** Region: ** ${{ secrets.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+                echo "** Region: ** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
 
             - name: Terraform Format Check
@@ -184,7 +184,7 @@ jobs:
                   echo "function_name-$FUNCTION_NAME" >> $GITHUB_OUTPUT
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "## Quick Links" >> $GITHUB_STEP_SUMMARY
-                  echo " - **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=${{ secrets.AWS_REGION }}#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
+                  echo " - **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=${{ env.AWS_REGION }}#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
                   echo "- **CloudWatch Logs:** [View Logs](https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/%252Faws%252Flambda%252F$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
                 fi
               working-directory: ./terraform/environments/dev

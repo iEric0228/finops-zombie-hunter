@@ -13,7 +13,6 @@ resource "aws_cloudwatch_event_target" "trigger_lambda_on_schedule" {
     rule      = aws_cloudwatch_event_rule.weekly_cleanup.name
     target_id = "FinOps-Zombie-Hunter-Target"
     arn       = var.lambda_function_arn
-    tags = var.common_tags
 }
 
 # 3. Permission for EventBridge to invoke Lambda
@@ -23,6 +22,4 @@ resource "aws_lambda_permission" "allow_cloudwatch_to_call_hunter" {
     function_name = var.lambda_function_name
     principal     = "events.amazonaws.com"
     source_arn    = aws_cloudwatch_event_rule.weekly_cleanup.arn
-    tags = var.common_tags
-
 }
