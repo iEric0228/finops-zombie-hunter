@@ -1,6 +1,6 @@
 """
-Zombie Hunter Lambda: Identifies and optionally deletes unused AWS resources for cost optimization.
-All destructive actions are protected by dry_run mode.
+Zombie Hunter Lambda: Identifies and optionally deletes unused AWS resources for
+cost optimization. All destructive actions are protected by dry_run mode.
 """
 
 import os
@@ -59,8 +59,8 @@ def check_nat_gw_zombies(ec2_client, cw_client, dry_run):
         if not metrics["Datapoints"] or metrics["Datapoints"][0]["Sum"] == 0:
             savings += 32
             print(
-                f"[NAT Gateway Zombie] : {nat_id} has had zero bytes out in the past week. "
-                f"Potential saving: $32/month."
+                f"[NAT Gateway Zombie] : {nat_id} has had zero bytes out in the "
+                f"past week. Potential saving: $32/month."
             )
             if not dry_run:
                 print(f"Would delete NAT Gateway: {nat_id}")
@@ -95,8 +95,8 @@ def check_ebs_zombies(ec2_client, dry_run):
         cost = volume["Size"] * 0.10
         savings += cost
         print(
-            f"[EBS Zombie] : Volume ID {volume['VolumeId']} of size {volume['Size']}GB "
-            f"could save ${cost}/month."
+            f"[EBS Zombie] : Volume ID {volume['VolumeId']} of size "
+            f"{volume['Size']}GB could save ${cost}/month."
         )
         if not dry_run:
             print(f"Would delete EBS Volume: {volume['VolumeId']}")
