@@ -1,0 +1,146 @@
+name: "Scan Once: Deploy, Scan, Destroy"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  scan-once:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      TF_WORKSPACE: ${{ github.event.inputs.environment || 'dev' }}
+      TF_ACTION: .terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActionsTerraformScanOnce
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        working-directory: ./terraform/environments/dev
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: |
+          echo "## Terraform initialization" >> $GITHUB_STEP_SUMMARY
+          terraform init -input=false
+          echo "Backend initialized successfully" >> $GITHUB_STEP_SUMMARY
+        working-directory: ./terraform/environments/dev
+
+      - name: Terraform Validate
+        id: validate
+        run: |
+          echo "## Terraform validation" >> $GITHUB_STEP_SUMMARY
+          terraform validate -no-color
+          echo "Configuration validated successfully" >> $GITHUB_STEP_SUMMARY
+        working-directory: ./terraform/environments/dev
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          terraform plan -input=false -no-color -out=tfplan | tee plan_output.txt
+          echo "<details><summary>View Full Plan</summary>" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat plan_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "### Planned Changes:" >> $GITHUB_STEP_SUMMARY
+          grep -E "Plan: | No changes" plan_output.txt | tail -1 >> $GITHUB_STEP_SUMMARY
+        working-directory: ./terraform/environments/dev
+
+      - name: Terraform Apply
+        id: apply
+        run: |
+          echo "## Terraform Apply" >> $GITHUB_STEP_SUMMARY
+          terraform apply -input=false -auto-approve tfplan | tee apply_output.txt
+          echo "<details><summary>View Full Apply Output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat apply_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
+        working-directory: ./terraform/environments/dev
+
+      - name: Extract Lambda Function Name
+        id: lambda-info
+        run: |
+          FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || true)
+          if [ -n "$FUNCTION_NAME" ] && [[ ! "$FUNCTION_NAME" =~ "No outputs found" ]] && [[ ! "$FUNCTION_NAME" =~ "Error:" ]]; then
+            echo "function_name=$FUNCTION_NAME" >> $GITHUB_OUTPUT
+            echo "## Quick Links" >> $GITHUB_STEP_SUMMARY
+            echo " - **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=us-east-1#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
+            echo "- **CloudWatch Logs:** [View Logs](https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/%252Faws%252Flambda%252F$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
+          fi
+        working-directory: ./terraform/environments/dev
+        continue-on-error: true
+
+      - name: Invoke Lambda for Scan and Destroy
+        run: |
+          FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || true)
+          if [ -n "$FUNCTION_NAME" ]; then
+            echo "Invoking Lambda $FUNCTION_NAME for zombie scan and destroy..."
+            aws lambda invoke --function-name "$FUNCTION_NAME" --payload '{"destroy": true}' --cli-binary-format raw-in-base64-out response.json --region us-east-1
+            echo '--- Lambda Response ---'
+            cat response.json
+            echo '--- End Lambda Response ---'
+          else
+            echo "::error::No Lambda function name found."
+            exit 1
+          fi
+        working-directory: ./terraform/environments/dev
+        continue-on-error: false
+
+      - name: Destroy Stack
+        run: |
+          echo "Scan complete. Destroying stack."
+          terraform destroy -auto-approve
+        working-directory: ./terraform/environments/dev
+        continue-on-error: false
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## Scan Once Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Format Check  |" ${{steps.fmt.outcome == 'success' && '✅ Passed' || '❌ Failed' }} " |" >> $GITHUB_STEP_SUMMARY
+          echo "| Init | ${{ steps.init.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validate | ${{ steps.validate.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Plan | ${{ steps.plan.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Apply | ${{ steps.apply.outcome == 'success' && '✅' || steps.apply.outcome == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lambda Scan | ${{ steps.lambda-info.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroy | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run:** [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
