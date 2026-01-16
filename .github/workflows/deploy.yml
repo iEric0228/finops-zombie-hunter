@@ -184,9 +184,9 @@ jobs:
               id: lambda-info
               if: steps.apply.outcome == 'success'
               run: |
-                FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || echo "")
-                if [ -n "$FUNCTION_NAME" ]; then
-                  echo "function_name-$FUNCTION_NAME" >> $GITHUB_OUTPUT
+                FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || true)
+                if [ -n "$FUNCTION_NAME" ] && [[ ! "$FUNCTION_NAME" =~ "No outputs found" ]] && [[ ! "$FUNCTION_NAME" =~ "Error:" ]]; then
+                  echo "function_name=$FUNCTION_NAME" >> $GITHUB_OUTPUT
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "## Quick Links" >> $GITHUB_STEP_SUMMARY
                   echo " - **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=${{ env.AWS_REGION }}#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
