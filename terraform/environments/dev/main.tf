@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 }
@@ -15,12 +15,19 @@ module "IAM" {
   source = "../../modules/IAM"
 }
 
+module "sns" {
+  source             = "../../modules/sns"
+  notification_email = "ericchiu0228@gmail.com"
+}
+
 module "lambda" {
   source        = "../../modules/lambda"
   function_name = "FinOps-Zombie-Hunter"
   i_am_role_arn = module.IAM.lambda_exec_role_arn
+  sns_topic_arn = module.sns.topic_arn
   env_vars = {
-    "ENV" = "dev"
+    "ENV"           = "dev"
+    "SNS_TOPIC_ARN" = module.sns.topic_arn
   }
   common_tags = {
     "Environment" = "dev"
@@ -39,4 +46,3 @@ module "event" {
     "Project"     = "FinOps-Zombie-Hunter"
   }
 }
-

@@ -38,10 +38,15 @@ resource "aws_iam_role_policy" "lambda_exec_policy" {
           "ec2:DescribeAddresses",
           "ec2:ReleaseAddress",
           "ec2:DescribeRegions",
+          "sns:Publish",
           "ec2:DescribeVolumes",
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
+          "kms:GenerateDataKey",
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:DescribeKey"
         ]
         Resource = "*"
       }
@@ -52,12 +57,12 @@ resource "aws_iam_role_policy" "lambda_exec_policy" {
 resource "aws_iam_policy" "lambda_ec2_describe_regions" {
   name        = "lambda-ec2-describe-regions"
   description = "Allow Lambda to describe EC2 regions"
-  policy      = jsonencode({
+  policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = [
+        Effect = "Allow"
+        Action = [
           "ec2:DescribeRegions"
         ]
         Resource = "*"

@@ -6,6 +6,7 @@ cost optimization. All destructive actions are protected by dry_run mode.
 import os
 from datetime import datetime, timedelta
 import boto3
+import json
 
 
 # --- 1. RDS Hunter ---
@@ -108,30 +109,66 @@ def lambda_handler(event, context):  # pylint: disable=unused-argument
     dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
     initial_ec2 = boto3.client("ec2")
     regions = [
-        region["RegionName"] for region in initial_ec2.describe_regions()["Regions"]
+        region["RegionName"]
+        for region in initial_ec2.describe_regions()["Regions"]
     ]
     report = {"EBS": 0, "RDS": 0, "NAT_GW": 0, "Elastic_IP": 0, "total_savings": 0}
+    ebs_count = 0
+    rds_count = 0
+    nat_count = 0
+    eip_count = 0
     for region in regions:
         print(f"--- Scanning region: {region} ---")
         ec2 = boto3.client("ec2", region_name=region)
         cw = boto3.client("cloudwatch", region_name=region)
         rds = boto3.client("rds", region_name=region)
-        report["EBS"] += check_ebs_zombies(ec2, dry_run)
-        report["RDS"] += check_rds_zombies(rds, cw, dry_run)
-        report["NAT_GW"] += check_nat_gw_zombies(ec2, cw, dry_run)
-        report["Elastic_IP"] += check_elastic_ip_zombies(ec2, dry_run)
+        ebs_savings = check_ebs_zombies(ec2, dry_run)
+        report["EBS"] += ebs_savings
+        ebs_count += 1 if ebs_savings > 0 else 0
+        rds_savings = check_rds_zombies(rds, cw, dry_run)
+        report["RDS"] += rds_savings
+        rds_count += 1 if rds_savings > 0 else 0
+        nat_savings = check_nat_gw_zombies(ec2, cw, dry_run)
+        report["NAT_GW"] += nat_savings
+        nat_count += 1 if nat_savings > 0 else 0
+        eip_savings = check_elastic_ip_zombies(ec2, dry_run)
+        report["Elastic_IP"] += eip_savings
+        eip_count += 1 if eip_savings > 0 else 0
     report["total_savings"] = sum(
         [report["EBS"], report["RDS"], report["NAT_GW"], report["Elastic_IP"]]
     )
-    summary = (
-        f"Hunt Complete! Total Potential Savings: ${report['total_savings']:.2f}/mo"
-    )
-    if report["total_savings"] == 0:
-        summary = "No zombie resources found. Great job!"
+    estimated_savings = report["total_savings"]
+    summary = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "regions_scanned": regions,
+        "zombie_resources": {
+            "ebs_volumes": ebs_count,
+            "nat_gateways": nat_count,
+            "elastic_ips": eip_count,
+            "rds_instances": rds_count
+        },
+        "estimated_monthly_savings": f"${estimated_savings:.2f}"
+    }
+
+    # If zombies found, send SNS notification
+    total_zombies = sum(summary["zombie_resources"].values())
+    sns = boto3.client("sns")
+    topic_arn = os.environ.get("SNS_TOPIC_ARN", "arn:aws:sns:us-east-1:YOUR_ACCOUNT_ID:ZombieHunterNotifications")
+    if total_zombies > 0:
+        message = (
+            f"Zombie resources detected!\n\n{json.dumps(summary, indent=2)}\n\n"
+            "Reply YES to this email or click the approval link to delete these resources."
+        )
     else:
-        print(f"\n{summary}")
-    print(
-        f"Breakdown: EBS: ${report['EBS']:.2f}, RDS: ${report['RDS']:.2f}, "
-        f"NAT: ${report['NAT_GW']:.2f}, EIP: ${report['Elastic_IP']:.2f}"
+        message = (
+            f"No zombie resources found! Great job!\n\n"
+            f"{json.dumps(summary, indent=2)}"
+        )
+    sns.publish(
+        TopicArn=topic_arn,
+        Subject="Zombie Resource Scan Results",
+        Message=message
     )
-    return {"statusCode": 200, "body": summary, "breakdown": report}
+
+    # Return summary for CI/CD log
+    return summary

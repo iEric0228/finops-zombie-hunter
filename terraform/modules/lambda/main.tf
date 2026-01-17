@@ -2,7 +2,7 @@
 # 1. Package the Python code into a ZIP
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_file = "${abspath("${path.root}/../../../src/hunter.py")}"  # Go up 3 levels from terraform/environments/dev
+  source_file = abspath("${path.root}/../../../src/hunter.py") # Go up 3 levels from terraform/environments/dev
   output_path = "${path.module}/hunter.zip"
 }
 
@@ -23,6 +23,6 @@ resource "aws_lambda_function" "Finops_Zombie_Hunter" {
   tags = var.common_tags
 
   environment {
-    variables = var.env_vars
+    variables = merge(var.env_vars, { SNS_TOPIC_ARN = var.sns_topic_arn })
   }
 }

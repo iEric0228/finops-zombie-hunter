@@ -140,7 +140,7 @@ jobs:
             echo "Invoking Lambda $FUNCTION_NAME for zombie scan and destroy..."
             aws lambda invoke --function-name "$FUNCTION_NAME" --payload '{"destroy": true}' --cli-binary-format raw-in-base64-out response.json --region us-east-1
             echo '--- Lambda Response ---' >> $GITHUB_STEP_SUMMARY
-            cat response.json >> $GITHUB_STEP_SUMMARY
+            cat response.json | jq . >> $GITHUB_STEP_SUMMARY
             echo '--- End Lambda Response ---' >> $GITHUB_STEP_SUMMARY
           else
             echo "::error::No Lambda function name found."
@@ -150,9 +150,13 @@ jobs:
         continue-on-error: false
 
       - name: Destroy Stack
+        id: destroy
         run: |
           echo "Scan complete. Destroying stack."
-          terraform destroy -auto-approve
+          terraform destroy -auto-approve | tee destroy_output.txt
+          echo '--- Destroy Output ---' >> $GITHUB_STEP_SUMMARY
+          cat destroy_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '--- End Destroy Output ---' >> $GITHUB_STEP_SUMMARY
         working-directory: ./terraform/environments/dev
         continue-on-error: false
 
@@ -171,6 +175,6 @@ jobs:
           echo "| Plan | ${{ steps.plan.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Apply | ${{ steps.apply.outcome == 'success' && '✅' || steps.apply.outcome == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Lambda Scan | ${{ steps.lambda-info.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Destroy | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroy | ${{ steps.destroy.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run:** [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
