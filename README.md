@@ -1,115 +1,265 @@
 # FinOps Zombie Hunter
 
 [![Deploy Status](https://github.com/iEric0228/finops-zombie-hunter/actions/workflows/deploy.yml/badge.svg)](https://github.com/iEric0228/finops-zombie-hunter/actions/workflows/deploy.yml)
+[![Lint Status](https://github.com/iEric0228/finops-zombie-hunter/actions/workflows/lint.yml/badge.svg)](https://github.com/iEric0228/finops-zombie-hunter/actions/workflows/lint.yml)
 [![AWS](https://img.shields.io/badge/AWS-FF9900?style=flat-square&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 [![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat-square&logo=terraform&logoColor=white)](https://terraform.io/)
-[![Infrastructure](https://img.shields.io/badge/Infrastructure-as%20Code-blue?style=flat-square)](https://terraform.io/)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org/)
+
+Automated AWS cost-optimization engine that identifies zombie (unused) resources across all regions and sends savings reports via SNS.
 
 ---
 
-## Project Overview
+## 1. The Problem
 
-An automated AWS cost-optimization engine that identifies and cleans up unattached resources.
+Cloud waste costs companies billions annually. Developers delete EC2 instances but forget associated EBS volumes, NAT Gateways, RDS databases, and Elastic IPs — "zombie" resources that silently accumulate charges every month.
 
 ---
 
-## The Business Problem
+## 2. Architecture
 
-Cloud waste costs companies billions. Developers often delete EC2 instances but forget to delete the associated EBS, NAT gateway, RDS Database, Elastic IPs leading to "Zombie" resources that continue to bill the company every month.
-
-This project automates the identification and (optional) deletion of these resources, providing clear visibility into monthly cost savings.
-
-## Tech Stack
-
-- **Cloud:** AWS (Lambda, EventBridge, CloudWatch)
-- **IaC:** Terraform (S3 Backend + DynamoDB State Locking)
-- **Logic:** Python 3.12 (Boto3 SDK, OS)
-- **CI/CD:** GitHub Actions (OIDC Authentication)
-
-## File Structure
-
-![Alt Text](./share/structure.png)
-
-## Architecture Design
-
-![Alt Text](./share/design.png)
-
-The system follows a modular, serverless architecture:
-
-1. **Trigger:** EventBridge Rule configured with `cron(0 0 ? * SUN *)`.
-2. **Compute:** AWS Lambda running Python 3.12, modularized to scan multiple services.
-3. **Cross-Region Logic:** The script dynamically fetches all enabled AWS regions and performs a local audit in each.
-4. **Data-Driven Audit:** Unlike simple status checks, the engine queries **CloudWatch Metrics** to identify idle RDS and NAT Gateways based on actual usage patterns.
-5. **State Management:** Terraform Remote State is persisted in S3 with DynamoDB for state locking to ensure CI/CD integrity.
-
-## Best Practices
-
-- **Modular IaC:** Infrastructure is split into reusable modules (`lambda`, `events`, `iam`), allowing for independent scaling and testing.
-- **Identity Federation (OIDC):** Eliminated static AWS credentials by using GitHub Actions as a trusted OIDC identity provider.
-- **Shift-Left Security:** Integrated `tfsec` and `flake8` into the CI pipeline to catch security misconfigurations and code smells before deployment.
-- **Cost Awareness:** The system provides a granular financial breakdown (EBS vs RDS vs NAT) in the final execution report.
-- **Atomic Refactoring:** Used Terraform `moved` blocks to transition from a monolithic to a modular structure without resource destruction.
-
-## Sample Execution Log
-
-```json
-{
-  "timestamp": "2024-01-15T00:00:00Z",
-  "regions_scanned": ["us-east-1", "us-west-2", "eu-west-1"],
-  "zombie_resources": {
-    "ebs_volumes": 12,
-    "nat_gateways": 2,
-    "elastic_ips": 5,
-    "rds_instances": 1
-  },
-  "estimated_monthly_savings": "$347.50"
-}
+```
++---------------------------------------------------------------+
+|                  CI/CD Layer (GitHub Actions)                   |
+|  Workflows: Deploy, Scan-Once, Lint                            |
+|  Features: OIDC auth, concurrency control, security scanning   |
++---------------------------------------------------------------+
+                            |
+                            v
++---------------------------------------------------------------+
+|             Infrastructure Layer (Terraform)                    |
+|  +--------+  +--------+  +--------+  +---------+              |
+|  |  IAM   |->| Lambda |->|  SNS   |->|  Event  |              |
+|  | Module |  | Module |  | Module |  | Module  |              |
+|  +--------+  +--------+  +--------+  +---------+              |
+|  Least-priv  Python 3.12 KMS-encrypt EventBridge              |
+|  scoped ARNs 256MB/300s  email sub   cron schedule             |
++---------------------------------------------------------------+
+                            |
+                            v
++---------------------------------------------------------------+
+|              Runtime Layer (Lambda + CloudWatch)                |
+|                                                                |
+|  For each AWS region:                                          |
+|    1. EBS: Unattached volumes (status=available)               |
+|    2. RDS: Zero connections over 7 days (CloudWatch metrics)   |
+|    3. NAT GW: Zero bytes out over 7 days (CloudWatch metrics)  |
+|    4. EIP: Unassociated Elastic IPs (no AssociationId)         |
+|                                                                |
+|  -> Aggregated report -> SNS notification                      |
++---------------------------------------------------------------+
 ```
 
-## Getting Started
+### Repository Layout
+
+```
+finops-zombie-hunter/
+├── src/
+│   ├── hunter.py                     # Core Lambda function (zombie detection)
+│   └── requirements.txt              # Python dependencies (boto3)
+├── terraform/
+│   ├── environments/
+│   │   └── dev/                      # Root module (orchestrates all modules)
+│   │       ├── main.tf               # Module composition & wiring
+│   │       ├── variables.tf          # Configurable inputs with validation
+│   │       ├── output.tf             # Exports Lambda name and ARN
+│   │       ├── backend.tf            # S3 + DynamoDB remote state
+│   │       └── terraform.tfvars.example
+│   └── modules/
+│       ├── IAM/                      # Lambda execution role (least-privilege)
+│       ├── lambda/                   # Lambda function + CloudWatch Log Group
+│       ├── sns/                      # SNS topic with KMS encryption
+│       └── event/                    # EventBridge scheduled trigger
+├── .github/
+│   └── workflows/
+│       ├── deploy.yml                # Deploy pipeline (plan/apply/destroy)
+│       ├── scan-once.yml             # Ephemeral: deploy, scan, destroy
+│       └── lint.yml                  # Terraform + Python linting & security
+└── share/                            # Architecture diagrams
+```
+
+---
+
+## 3. Key Components
+
+- **Lambda Function (`src/hunter.py`):** Scans all AWS regions for zombie EBS volumes, idle RDS instances, unused NAT Gateways, and unattached EIPs. Uses CloudWatch metrics for data-driven detection. Supports dry-run mode.
+- **IAM Module:** Least-privilege role with separate policies for read-only scanning, SNS publishing (scoped to topic ARN), and logging (scoped to log group ARN).
+- **Lambda Module:** Python 3.12 runtime, 256MB memory, 300s timeout, reserved concurrency of 1, managed CloudWatch Log Group with 14-day retention.
+- **SNS Module:** KMS-encrypted topic with email subscription for scan result notifications.
+- **Event Module:** EventBridge rule using configurable schedule expression (default: weekly Sunday midnight).
+
+---
+
+## 4. Data Flow
+
+### Zombie Detection Flow
+
+```
+1. EventBridge triggers Lambda on schedule (weekly by default)
+2. Lambda lists all enabled AWS regions
+3. For each region, Lambda checks:
+   a. EBS volumes with status "available" (unattached)
+   b. RDS instances with 0 average connections over 7 days
+   c. NAT Gateways with 0 bytes out over 7 days
+   d. Elastic IPs without an AssociationId (unassociated)
+4. Results aggregated with per-type savings estimates
+5. Summary published to SNS (email notification)
+6. Full report returned for CI/CD logging
+```
+
+### CI/CD Workflows
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| `deploy.yml` | Push to main (plan only), manual dispatch | Plan/Apply/Destroy with OIDC auth |
+| `scan-once.yml` | Manual dispatch | Deploy infra, invoke scan, destroy (ephemeral) |
+| `lint.yml` | Push/PR to main | Terraform fmt/validate, Trivy IaC scan, Black, Flake8, Pylint, Bandit |
+
+---
+
+## 5. Security
+
+| Feature | Implementation |
+|---------|---------------|
+| **Authentication** | GitHub OIDC -> AWS STS (no static credentials) |
+| **IAM Scoping** | Read-only scanning policy, SNS publish scoped to topic ARN, logs scoped to log group ARN |
+| **Encryption** | SNS topic encrypted with customer-managed KMS key (auto-rotation enabled) |
+| **Dry-Run** | Default mode prevents any resource deletion |
+| **Concurrency** | `reserved_concurrent_executions = 1` prevents parallel runs |
+| **CI/CD** | Push to main only plans (no auto-apply), manual approval required for apply |
+| **Scanning** | Trivy (IaC), Bandit (Python security), Flake8, Pylint in CI pipeline |
+| **State** | S3 backend with encryption, versioning, DynamoDB locking |
+
+---
+
+## 6. Tech Stack
+
+| Layer | Technology | Version | Purpose |
+|-------|-----------|---------|---------|
+| Compute | AWS Lambda | - | Serverless zombie detection |
+| Runtime | Python | 3.12 | Boto3 SDK for AWS API calls |
+| IaC | Terraform | >= 1.5 | Infrastructure provisioning |
+| Cloud | AWS (Lambda, SNS, EventBridge, CloudWatch) | Provider ~> 5.0 | Managed services |
+| Notifications | SNS + KMS | - | Encrypted email alerts |
+| Scheduling | EventBridge | - | Cron-based Lambda triggers |
+| CI/CD | GitHub Actions | - | OIDC-authenticated pipelines |
+| Security | Trivy, Bandit, Flake8, Pylint, Black | - | Shift-left security & linting |
+
+---
+
+## 7. Quickstart
 
 ### Prerequisites
 
-- AWS Account with appropriate IAM permissions
-- Terraform >= 1.0
+- AWS account with permissions for Lambda, IAM, SNS, EventBridge, CloudWatch, EC2, RDS
+- Terraform >= 1.5
 - Python 3.12+
-- GitHub account for CI/CD
+- GitHub Actions OIDC role configured for your repository
 
-### Installation
+### Setup
 
-1. Clone the repository:
-
+1. Fork + clone this repo
+2. Create GitHub Actions secrets:
+   - `AWS_ROLE_ARN`: `arn:aws:iam::<ACCOUNT_ID>:role/<OIDC_ROLE>`
+   - `NOTIFICATION_EMAIL`: Email for scan notifications
+3. Copy and customize variables:
    ```bash
-   git clone https://github.com/iEric0228/finops-zombie-hunter.git
-   cd finops-zombie-hunter
+   cp terraform/environments/dev/terraform.tfvars.example terraform/environments/dev/terraform.tfvars
    ```
 
-2. Configure AWS credentials or set up OIDC authentication
+### Run via CI/CD (recommended)
 
-3. Initialize Terraform:
+- **Plan only:** Push to `main` (automatic)
+- **Apply:** Actions > `Terraform Deploy` > Run workflow > action: `apply`
+- **Scan once:** Actions > `Scan Once` > Run workflow (deploys, scans, destroys automatically)
+- **Destroy:** Actions > `Terraform Deploy` > Run workflow > action: `destroy`
 
-   ```bash
-   terraform init
-   ```
+### Run locally
 
-4. Deploy the infrastructure:
+```bash
+cd terraform/environments/dev
+terraform init
+terraform plan
+terraform apply   # Only when ready
+```
 
-   ```bash
-   terraform apply
-   ```
+### Configuration
 
-### The Final Step: The Launch
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_region` | `us-east-1` | AWS region |
+| `environment` | `dev` | Environment name (dev/staging/prod) |
+| `notification_email` | - | Email for SNS notifications (required) |
+| `schedule_expression` | `cron(0 0 ? * SUN *)` | EventBridge schedule |
+| `dry_run` | `true` | Dry-run mode (no deletions) |
+| `lambda_timeout` | `300` | Lambda timeout in seconds |
+| `lambda_memory_size` | `256` | Lambda memory in MB |
 
-1. **Run:** `terraform apply`
-2. **Type:** `yes` (Only when you are sure!)
-3. **Verify:** Log into your AWS Console -> Lambda. You should see "FinOps-Zombie-Hunter" there.
-4. **Test:** Create a small (1GB) EBS volume in the AWS Console. Don't attach it to anything. Wait 2 minutes, then manually "Test" your Lambda function.
+---
+
+## 8. Sample Output
+
+```json
+{
+  "timestamp": "2025-01-15T00:00:00+00:00",
+  "dry_run": true,
+  "regions_scanned": 17,
+  "zombie_resources": {
+    "ebs_volumes": 12,
+    "rds_instances": 1,
+    "nat_gateways": 2,
+    "elastic_ips": 5
+  },
+  "savings_by_type": {
+    "EBS": "$48.00",
+    "RDS": "$100.00",
+    "NAT_GW": "$64.00",
+    "Elastic_IP": "$18.00"
+  },
+  "estimated_monthly_savings": "$230.00",
+  "errors": []
+}
+```
+
+---
+
+## 9. Troubleshooting
+
+### Lambda timeout on large accounts
+
+Increase `lambda_timeout` (max 900s) and `lambda_memory_size` in your tfvars. Scanning 30+ regions with many resources can take several minutes.
+
+### SNS email not received
+
+After first deploy, check your email for the SNS subscription confirmation. The subscription must be confirmed before notifications work.
+
+### Terraform state lock
+
+If a previous run was interrupted, use `terraform force-unlock <LOCK_ID>` manually. Never automate state lock deletion.
+
+---
+
+## 10. Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `src/hunter.py` | Core Lambda - zombie detection with pagination, error handling, structured logging |
+| `terraform/environments/dev/main.tf` | Root module wiring all components |
+| `terraform/environments/dev/variables.tf` | Configurable inputs with validation |
+| `terraform/modules/IAM/iam.tf` | Least-privilege IAM (separate read, SNS, logging policies) |
+| `terraform/modules/lambda/main.tf` | Lambda function + CloudWatch Log Group |
+| `terraform/modules/sns/main.tf` | KMS-encrypted SNS topic + email subscription |
+| `terraform/modules/event/main.tf` | EventBridge scheduled trigger |
+| `.github/workflows/deploy.yml` | Deploy pipeline (plan/apply/destroy) |
+| `.github/workflows/scan-once.yml` | Ephemeral deploy-scan-destroy workflow |
+| `.github/workflows/lint.yml` | Terraform + Python linting & security scanning |
+
+---
 
 ## Author
 
-### Eric Chiu
-
-- Portfolio: [Deploy on Demand](https://github.com/iEric0228/cloud-resume)
-- LinkedIn: [Eric Chiu](https://www.linkedin.com/in/eric-chiu-a610553a3/)
-- GitHub: [@iEric0228](https://github.com/iEric0228)
-- Email: [ericchiu0228@gmail.com](mailto:ericchiu0228@gmail.com)
+**Eric Chiu**
+Portfolio: [Deploy on Demand](https://github.com/iEric0228/cloud-resume)
+LinkedIn: [Eric Chiu](https://www.linkedin.com/in/eric-chiu-a610553a3/)
+GitHub: [@iEric0228](https://github.com/iEric0228)
+Email: [ericchiu0228@gmail.com](mailto:ericchiu0228@gmail.com)

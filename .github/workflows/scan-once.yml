@@ -16,15 +16,17 @@ on:
 permissions:
   contents: read
   id-token: write
-  pull-requests: write
+
+concurrency:
+  group: terraform-scan-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
 
 jobs:
   scan-once:
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'dev' }}
     env:
-      TF_WORKSPACE: ${{ github.event.inputs.environment || 'dev' }}
-      TF_ACTION: .terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+      TF_VAR_notification_email: ${{ secrets.NOTIFICATION_EMAIL }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -37,20 +39,14 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
           role-session-name: GitHubActionsTerraformScanOnce
-
-      - name: Terraform Format Check
-        id: fmt
-        run: terraform fmt -check -recursive
-        working-directory: ./terraform/environments/dev
-        continue-on-error: true
 
       - name: Terraform Init
         id: init
         run: |
-          echo "## Terraform initialization" >> $GITHUB_STEP_SUMMARY
+          echo "## Terraform Initialization" >> $GITHUB_STEP_SUMMARY
           terraform init -input=false
           echo "Backend initialized successfully" >> $GITHUB_STEP_SUMMARY
         working-directory: ./terraform/environments/dev
@@ -58,40 +54,10 @@ jobs:
       - name: Terraform Validate
         id: validate
         run: |
-          echo "## Terraform validation" >> $GITHUB_STEP_SUMMARY
+          echo "## Terraform Validation" >> $GITHUB_STEP_SUMMARY
           terraform validate -no-color
           echo "Configuration validated successfully" >> $GITHUB_STEP_SUMMARY
         working-directory: ./terraform/environments/dev
-
-      - name: List DynamoDB Lock Table Items
-        run: |
-          TABLE_NAME="terraform-lock-finops"
-          echo "Listing all lock items in $TABLE_NAME:"
-          aws dynamodb scan --table-name "$TABLE_NAME" --region us-east-1
-        continue-on-error: true
-
-      - name: Force Unlock All Terraform State Locks
-        run: |
-          TABLE_NAME="terraform-lock-finops"
-          LOCK_IDS=$(aws dynamodb scan --table-name "$TABLE_NAME" --region us-east-1 --query 'Items[*].LockID.S' --output text)
-          for LOCK_ID in $LOCK_IDS; do
-            echo "Deleting lock with LockID: $LOCK_ID"
-            aws dynamodb delete-item --table-name "$TABLE_NAME" --key "{\"LockID\": {\"S\": \"$LOCK_ID\"}}" --region us-east-1
-          done
-        continue-on-error: true
-
-      - name: List DynamoDB Lock Table Items (Post-Unlock)
-        run: |
-          TABLE_NAME="terraform-lock-finops"
-          echo "Listing all lock items in $TABLE_NAME after unlock:"
-          aws dynamodb scan --table-name "$TABLE_NAME" --region us-east-1
-        continue-on-error: true
-
-      - name: Wait for DynamoDB Consistency
-        run: |
-          echo "Waiting 5 seconds for DynamoDB consistency..."
-          sleep 5
-        continue-on-error: true
 
       - name: Terraform Plan
         id: plan
@@ -117,7 +83,6 @@ jobs:
           cat apply_output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "</details>" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
         working-directory: ./terraform/environments/dev
 
       - name: Extract Lambda Function Name
@@ -127,40 +92,61 @@ jobs:
           if [ -n "$FUNCTION_NAME" ] && [[ ! "$FUNCTION_NAME" =~ "No outputs found" ]] && [[ ! "$FUNCTION_NAME" =~ "Error:" ]]; then
             echo "function_name=$FUNCTION_NAME" >> $GITHUB_OUTPUT
             echo "## Quick Links" >> $GITHUB_STEP_SUMMARY
-            echo " - **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=us-east-1#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Lambda Function:** [${FUNCTION_NAME}](https://console.aws.amazon.com/lambda/home?region=us-east-1#/functions/$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
             echo "- **CloudWatch Logs:** [View Logs](https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/%252Faws%252Flambda%252F$FUNCTION_NAME)" >> $GITHUB_STEP_SUMMARY
           fi
         working-directory: ./terraform/environments/dev
         continue-on-error: true
 
-      - name: Invoke Lambda for Scan and Destroy
+      - name: Invoke Lambda for Scan
         run: |
-          FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || true)
+          FUNCTION_NAME="${{ steps.lambda-info.outputs.function_name }}"
+          if [ -z "$FUNCTION_NAME" ]; then
+            FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || true)
+          fi
           if [ -n "$FUNCTION_NAME" ]; then
-            echo "Invoking Lambda $FUNCTION_NAME for zombie scan and destroy..."
-            aws lambda invoke --function-name "$FUNCTION_NAME" --payload '{"destroy": true}' --cli-binary-format raw-in-base64-out response.json --region us-east-1
-            echo '--- Lambda Response ---' >> $GITHUB_STEP_SUMMARY
+            echo "Invoking Lambda $FUNCTION_NAME for zombie scan..."
+            aws lambda invoke \
+              --function-name "$FUNCTION_NAME" \
+              --payload '{}' \
+              --cli-binary-format raw-in-base64-out \
+              response.json \
+              --region us-east-1
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## Lambda Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
             cat response.json | jq . >> $GITHUB_STEP_SUMMARY
-            echo '--- End Lambda Response ---' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
           else
             echo "::error::No Lambda function name found."
             exit 1
           fi
         working-directory: ./terraform/environments/dev
-        continue-on-error: false
+
+      - name: Upload Scan Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results-${{ github.run_number }}
+          path: ./terraform/environments/dev/response.json
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Destroy Stack
         id: destroy
+        if: always()
         run: |
-          echo "Scan complete. Destroying stack."
-          terraform destroy -auto-approve | tee destroy_output.txt
-          echo '--- Destroy Output ---' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Terraform Destroy" >> $GITHUB_STEP_SUMMARY
+          terraform destroy -input=false -auto-approve | tee destroy_output.txt
+          echo "<details><summary>View Destroy Output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           cat destroy_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '--- End Destroy Output ---' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
         working-directory: ./terraform/environments/dev
-        continue-on-error: false
 
-      - name: Deployment Summary
+      - name: Scan Once Summary
         if: always()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -169,12 +155,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Format Check  |" ${{steps.fmt.outcome == 'success' && '✅ Passed' || '❌ Failed' }} " |" >> $GITHUB_STEP_SUMMARY
           echo "| Init | ${{ steps.init.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Validate | ${{ steps.validate.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Plan | ${{ steps.plan.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Apply | ${{ steps.apply.outcome == 'success' && '✅' || steps.apply.outcome == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Lambda Scan | ${{ steps.lambda-info.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Apply | ${{ steps.apply.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Destroy | ${{ steps.destroy.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run:** [#${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY

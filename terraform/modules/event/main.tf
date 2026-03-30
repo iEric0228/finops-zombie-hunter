@@ -1,22 +1,17 @@
-#--- EVENTBRIDGE SCHEDULE CONFIGURATION
-
-# 1. Rule
 resource "aws_cloudwatch_event_rule" "weekly_cleanup" {
   name                = var.rule_name
-  description         = "Triggers the FinOps Zombie Hunter Lambda every Sunday at midnight"
-  schedule_expression = "cron(0 0 ? * SUN *)" # Every Sunday at midnight
+  description         = "Triggers the FinOps Zombie Hunter Lambda on schedule"
+  schedule_expression = var.schedule_expression
   tags                = var.common_tags
 }
 
-# 2. Target
-resource "aws_cloudwatch_event_target" "trigger_lambda_on_schedule" {
+resource "aws_cloudwatch_event_target" "trigger_lambda" {
   rule      = aws_cloudwatch_event_rule.weekly_cleanup.name
   target_id = "FinOps-Zombie-Hunter-Target"
   arn       = var.lambda_function_arn
 }
 
-# 3. Permission for EventBridge to invoke Lambda
-resource "aws_lambda_permission" "allow_cloudwatch_to_call_hunter" {
+resource "aws_lambda_permission" "allow_eventbridge" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
   function_name = var.lambda_function_name

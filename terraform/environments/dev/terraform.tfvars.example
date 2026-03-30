@@ -1,0 +1,7 @@
+aws_region         = "us-east-1"
+environment        = "dev"
+notification_email = "your-email@example.com"
+schedule_expression = "cron(0 0 ? * SUN *)"
+dry_run            = true
+lambda_timeout     = 300
+lambda_memory_size = 256

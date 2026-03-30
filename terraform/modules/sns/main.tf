@@ -4,6 +4,11 @@ resource "aws_kms_key" "sns" {
   enable_key_rotation     = true
 }
 
+resource "aws_kms_alias" "sns" {
+  name          = "alias/zombie-hunter-sns"
+  target_key_id = aws_kms_key.sns.key_id
+}
+
 resource "aws_sns_topic" "zombie_notifications" {
   name              = "ZombieHunterNotifications"
   kms_master_key_id = aws_kms_key.sns.arn
@@ -21,5 +26,6 @@ variable "notification_email" {
 }
 
 output "topic_arn" {
-  value = aws_sns_topic.zombie_notifications.arn
+  description = "ARN of the SNS notification topic"
+  value       = aws_sns_topic.zombie_notifications.arn
 }
