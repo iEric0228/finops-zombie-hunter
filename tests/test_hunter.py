@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,7 +26,6 @@ from hunter import (  # noqa: E402
     lambda_handler,
 )
 
-
 # --- Helpers ---------------------------------------------------------------
 
 
@@ -40,11 +39,11 @@ def _paginated(client, page):
 
 
 def _old():
-    return datetime.now(timezone.utc) - timedelta(days=30)
+    return datetime.now(UTC) - timedelta(days=30)
 
 
 def _recent():
-    return datetime.now(timezone.utc) - timedelta(days=1)
+    return datetime.now(UTC) - timedelta(days=1)
 
 
 @pytest.fixture
