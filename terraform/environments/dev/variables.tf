@@ -33,6 +33,23 @@ variable "dry_run" {
   default     = true
 }
 
+variable "min_age_days" {
+  description = "Minimum age in days before an unattached resource is eligible for deletion"
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.min_age_days >= 0
+    error_message = "min_age_days must be zero or greater."
+  }
+}
+
+variable "report_retention_days" {
+  description = "Days to retain scan reports in S3 before lifecycle expiration"
+  type        = number
+  default     = 90
+}
+
 variable "lambda_timeout" {
   description = "Lambda function timeout in seconds"
   type        = number
