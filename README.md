@@ -124,7 +124,7 @@ finops-zombie-hunter/
 |----------|---------|-------------|
 | `deploy.yml` | Push to main (plan only), manual dispatch | Plan/Apply/Destroy with OIDC auth |
 | `scan-once.yml` | Manual dispatch | Deploy infra, invoke scan, destroy (ephemeral) |
-| `lint.yml` | Push/PR to main | Terraform fmt/validate, Trivy IaC scan, Black, Flake8, Pylint, Bandit |
+| `lint.yml` | Push/PR to main | Terraform fmt/validate, Trivy IaC scan, ruff (lint + format), mypy `--strict`, pytest |
 
 ---
 
@@ -166,7 +166,7 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
 | **Dry-Run** | Default mode prevents any resource deletion |
 | **Concurrency** | `reserved_concurrent_executions = 1` prevents parallel runs |
 | **CI/CD** | Push to main only plans (no auto-apply), manual approval required for apply |
-| **Scanning** | Trivy (IaC), Bandit (Python security), Flake8, Pylint, **pytest** in CI pipeline |
+| **Scanning** | Trivy (IaC), ruff (lint + bandit `S` security rules), mypy `--strict` (types), **pytest** in CI pipeline |
 | **State** | S3 backend with encryption, versioning, DynamoDB locking |
 
 ---
@@ -182,8 +182,9 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
 | Notifications | SNS + KMS | - | Encrypted email alerts |
 | Reporting | S3 | - | Versioned JSON + Markdown report store |
 | Scheduling | EventBridge | - | Cron-based Lambda triggers |
+| Tooling | uv | - | Dependency management + locked, reproducible dev env |
 | CI/CD | GitHub Actions | - | OIDC-authenticated pipelines |
-| Security | Trivy, Bandit, Flake8, Pylint, Black, pytest | - | Shift-left security, linting & tests |
+| Quality | Trivy, ruff, mypy, pytest | - | Shift-left security, lint, types & tests |
 
 ---
 
@@ -193,7 +194,7 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
 
 - AWS account with permissions for Lambda, IAM, SNS, EventBridge, CloudWatch, EC2, RDS, S3
 - Terraform >= 1.5
-- Python 3.12+
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/) (`uv` can also provision the 3.12 interpreter)
 - GitHub Actions OIDC role configured for your repository
 
 ### Setup
@@ -214,7 +215,20 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
 - **Scan once:** Actions > `Scan Once` > Run workflow (deploys, scans, destroys automatically)
 - **Destroy:** Actions > `Terraform Deploy` > Run workflow > action: `destroy`
 
-### Run locally
+### Local development (Python)
+
+Dependencies and tooling are managed with `uv` from `pyproject.toml` /
+`uv.lock`. The same commands run in CI:
+
+```bash
+uv sync                       # create the env from the lockfile
+uv run ruff format --check src tests
+uv run ruff check src tests   # lint + security (bandit S rules)
+uv run mypy                   # strict type check (src/)
+uv run pytest -q              # unit tests
+```
+
+### Run locally (Terraform)
 
 ```bash
 cd terraform/environments/dev
