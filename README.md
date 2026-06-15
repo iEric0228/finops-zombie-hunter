@@ -109,8 +109,8 @@ finops-zombie-hunter/
    b. RDS instances with 0 average connections over 7 days  [report-only]
    c. NAT Gateways with 0 bytes out over 7 days             [report-only]
    d. Elastic IPs without an AssociationId (unassociated)   [deletable]
-4. For each deletable resource, if DRY_RUN=false AND it is older than
-   MIN_AGE_DAYS AND it has no keep/DoNotDelete tag -> delete it;
+4. For each deletable resource, if DRY_RUN=false AND it has no keep/DoNotDelete
+   tag AND (for EBS) it is older than MIN_AGE_DAYS -> delete it;
    otherwise record it as "would_delete" (dry-run) or "skipped"
 5. Results aggregated into a report (per-resource action + savings)
 6. Report persisted to S3 as JSON + Markdown
@@ -143,8 +143,10 @@ misconfigured run cannot cause data loss or an outage.
 A deletable resource is removed **only when all** of the following hold:
 
 1. `DRY_RUN=false` (default is `true` — nothing is deleted), **and**
-2. the resource is older than `MIN_AGE_DAYS` (default 7), **and**
-3. it carries no `keep` / `DoNotDelete` tag.
+2. it carries no `keep` / `DoNotDelete` tag, **and**
+3. for EBS volumes, it is older than `MIN_AGE_DAYS` (default 7). Elastic IPs
+   expose no creation timestamp via the API, so they are gated by the
+   unassociated + tag checks rather than by age.
 
 Defense in depth: when `dry_run = true`, the IAM role has **no delete permissions
 at all** (`ec2:DeleteVolume` / `ec2:ReleaseAddress` are attached only when
