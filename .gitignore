@@ -74,7 +74,7 @@ credentials
 
 # Terraform
 .terraform/
-.terraform.lock.hcl
+# NOTE: .terraform.lock.hcl IS committed for reproducible provider versions.
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
