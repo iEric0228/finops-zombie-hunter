@@ -221,3 +221,33 @@ jobs:
           echo "| Flake8 | ${{ steps.flake8.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Pylint | ${{ steps.pylint.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Bandit | ${{ steps.bandit.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
+
+  python-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        id: pytest
+        run: |
+          echo "## Unit Tests (pytest)" >> $GITHUB_STEP_SUMMARY
+          if pytest -q | tee pytest_output.txt; then
+            echo "All unit tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Unit tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat pytest_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
