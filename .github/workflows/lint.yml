@@ -121,128 +121,64 @@ jobs:
             echo "Some Terraform linting checks failed" >> $GITHUB_STEP_SUMMARY
           fi
 
-  python-lint:
+  python-quality:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8 black pylint bandit
+      - name: Install dependencies (from lockfile)
+        run: uv sync --frozen
 
-      - name: Install Python dependencies
-        run: pip install -r src/requirements.txt
-
-      - name: Black (Formatting Check)
-        id: black
+      - name: Ruff (format check)
+        id: format
         run: |
-          echo "## Python Code Formatting (Black)" >> $GITHUB_STEP_SUMMARY
-          if black --check src/hunter.py 2>&1 | tee black_output.txt; then
+          echo "## Python Format (ruff)" >> $GITHUB_STEP_SUMMARY
+          if uv run ruff format --check src tests; then
             echo "Code is properly formatted" >> $GITHUB_STEP_SUMMARY
           else
-            echo "**Formatting issues found.** Run: \`black src/hunter.py\`" >> $GITHUB_STEP_SUMMARY
-            echo '```diff' >> $GITHUB_STEP_SUMMARY
-            cat black_output.txt >> $GITHUB_STEP_SUMMARY
+            echo "**Formatting issues found.** Run: \`uv run ruff format src tests\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Ruff (lint + security)
+        id: lint
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Python Lint (ruff)" >> $GITHUB_STEP_SUMMARY
+          if uv run ruff check --output-format=github src tests; then
+            echo "No lint issues found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Lint issues found** — see annotations" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Mypy (strict type check)
+        id: mypy
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Type Check (mypy --strict)" >> $GITHUB_STEP_SUMMARY
+          if uv run mypy | tee mypy_output.txt; then
+            echo "Type check passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Type errors found**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat mypy_output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
 
-      - name: Flake8 (Style & Error Check)
-        id: flake8
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Python Linting (Flake8)" >> $GITHUB_STEP_SUMMARY
-          if flake8 src/hunter.py --count --statistics --max-line-length=100 --format='%(path)s:%(row)d:%(col)d: %(code)s %(text)s' > flake8_output.txt 2>&1; then
-            echo "No linting issues found" >> $GITHUB_STEP_SUMMARY
-          else
-            ERROR_COUNT=$(wc -l < flake8_output.txt | tr -d ' ')
-            echo "**Found $ERROR_COUNT linting issues**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat flake8_output.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
-
-      - name: Pylint (Deep Analysis)
-        id: pylint
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Code Quality (Pylint)" >> $GITHUB_STEP_SUMMARY
-          if pylint src/hunter.py --output-format=text --score=y > pylint_output.txt 2>&1; then
-            SCORE=$(grep "Your code has been rated at" pylint_output.txt | awk '{print $7}' | cut -d'/' -f1)
-            echo "**Score: $SCORE/10**" >> $GITHUB_STEP_SUMMARY
-          else
-            SCORE=$(grep "Your code has been rated at" pylint_output.txt | awk '{print $7}' | cut -d'/' -f1 || echo "N/A")
-            echo "**Score: $SCORE/10**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "<details><summary>View Pylint Report</summary>" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat pylint_output.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "</details>" >> $GITHUB_STEP_SUMMARY
-          fi
-        continue-on-error: true
-
-      - name: Bandit (Security Linter)
-        id: bandit
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Security Scan (Bandit)" >> $GITHUB_STEP_SUMMARY
-          if bandit -r src/hunter.py -f txt -o bandit_output.txt; then
-            echo "No security issues found" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**Security concerns found**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "<details><summary>View Security Report</summary>" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            cat bandit_output.txt >> $GITHUB_STEP_SUMMARY
-            echo "</details>" >> $GITHUB_STEP_SUMMARY
-          fi
-        continue-on-error: true
-
-      - name: Python Linting Summary
-        if: always()
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Python Lint Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Black | ${{ steps.black.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Flake8 | ${{ steps.flake8.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Pylint | ${{ steps.pylint.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Bandit | ${{ steps.bandit.outcome == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
-
-  python-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Run unit tests
+      - name: Pytest (unit tests)
         id: pytest
         run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Unit Tests (pytest)" >> $GITHUB_STEP_SUMMARY
-          if pytest -q | tee pytest_output.txt; then
+          if uv run pytest -q | tee pytest_output.txt; then
             echo "All unit tests passed" >> $GITHUB_STEP_SUMMARY
           else
             echo "**Unit tests failed**" >> $GITHUB_STEP_SUMMARY
@@ -251,3 +187,17 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
+
+      - name: Python Quality Summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Python Quality Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ruff format | ${{ steps.format.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ruff lint | ${{ steps.lint.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mypy | ${{ steps.mypy.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pytest | ${{ steps.pytest.outcome == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
