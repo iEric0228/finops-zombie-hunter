@@ -24,13 +24,21 @@ provider "aws" {
 module "iam" {
   source = "../../modules/IAM"
 
-  function_name = "FinOps-Zombie-Hunter-${var.environment}"
-  sns_topic_arn = module.sns.topic_arn
+  function_name     = "FinOps-Zombie-Hunter-${var.environment}"
+  sns_topic_arn     = module.sns.topic_arn
+  report_bucket_arn = module.report_bucket.bucket_arn
+  enable_destroy    = !var.dry_run
 }
 
 module "sns" {
   source             = "../../modules/sns"
   notification_email = var.notification_email
+}
+
+module "report_bucket" {
+  source         = "../../modules/report-bucket"
+  environment    = var.environment
+  retention_days = var.report_retention_days
 }
 
 module "lambda" {
@@ -44,6 +52,8 @@ module "lambda" {
     "ENV"           = var.environment
     "DRY_RUN"       = tostring(var.dry_run)
     "SNS_TOPIC_ARN" = module.sns.topic_arn
+    "REPORT_BUCKET" = module.report_bucket.bucket_name
+    "MIN_AGE_DAYS"  = tostring(var.min_age_days)
   }
 }
 
