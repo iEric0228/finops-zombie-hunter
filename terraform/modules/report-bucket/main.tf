@@ -5,7 +5,8 @@ locals {
 }
 
 resource "aws_s3_bucket" "reports" {
-  bucket = local.bucket_name
+  bucket        = local.bucket_name
+  force_destroy = var.force_destroy
 }
 
 resource "aws_s3_bucket_public_access_block" "reports" {

@@ -19,3 +19,9 @@ variable "retention_days" {
     error_message = "Retention must be at least 1 day."
   }
 }
+
+variable "force_destroy" {
+  description = "Allow `terraform destroy` to delete the bucket even with reports in it. Required for the ephemeral scan-once (deploy->scan->destroy) flow; reports are disposable."
+  type        = bool
+  default     = true
+}
