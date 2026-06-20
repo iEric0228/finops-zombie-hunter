@@ -282,9 +282,11 @@ terraform apply     # Only when ready
 
 ## 9. Sample Output
 
-The Lambda returns (and SNS emails) this summary. The full per-resource report
-— including the `action` taken for each resource — is written to S3 as JSON and
-Markdown.
+The Lambda returns the **full report** — the summary below, plus per-resource
+`details` and a rendered Markdown report. **Scan Once** prints that Markdown
+straight into the GitHub Actions run summary (a readable table, no SNS needed);
+persistent deploys also write JSON + Markdown to S3 and email the summary via
+SNS once the subscription is confirmed.
 
 ```json
 {
