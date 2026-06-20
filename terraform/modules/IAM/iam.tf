@@ -114,7 +114,9 @@ resource "aws_iam_role_policy" "report_s3" {
 # Delete permissions are only attached when destroy mode is enabled, so a
 # dry-run deployment cannot remove anything even if the code path changed.
 # Resource is "*" because zombie resource IDs are dynamic and unknown at plan
-# time; the runtime guards (age threshold + keep tag) are the real safety net.
+# time; the runtime guards are the real safety net: dry-run by default, a
+# keep/DoNotDelete tag exclusion on both types, plus a minimum-age threshold on
+# EBS volumes (Elastic IPs expose no creation time, so they rely on tag + dry-run).
 resource "aws_iam_role_policy" "destroy" {
   count = var.enable_destroy ? 1 : 0
 

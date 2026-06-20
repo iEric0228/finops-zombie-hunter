@@ -39,6 +39,9 @@ ignore = ["UP031"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+# Scope: production code only. The MagicMock-based test suite is intentionally
+# excluded — strict typing of mock fixtures is noise, not safety. The canonical
+# command is `uv run mypy` (honors this scope); CI runs the same.
 files = ["src"]
 
 # boto3 / botocore do not ship complete type information.
