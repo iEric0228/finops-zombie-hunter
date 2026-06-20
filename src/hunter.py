@@ -437,34 +437,72 @@ def build_report(
 
 def _render_markdown(summary: dict[str, Any], findings: list[Finding]) -> str:
     """Render a human-readable Markdown report."""
-    mode = "DRY RUN (no deletions)" if summary["dry_run"] else "DESTROY"
+    mode = (
+        "DRY RUN — nothing deleted"
+        if summary["dry_run"]
+        else "DESTROY — eligible resources deleted"
+    )
+    if summary["zombies_found"]:
+        headline = (
+            "⚠️ **%d zombie resource(s)** found — up to **%s/mo** in potential savings."
+            % (
+                summary["zombies_found"],
+                summary["potential_monthly_savings"],
+            )
+        )
+    else:
+        headline = "✅ No zombie resources found."
+
     lines = [
         "# FinOps Zombie Hunter Report",
         "",
-        "- **Generated:** %s" % summary["timestamp"],
-        "- **Mode:** %s" % mode,
-        "- **Regions scanned:** %d" % summary["regions_scanned"],
-        "- **Zombies found:** %d" % summary["zombies_found"],
-        "- **Deleted:** %d  |  **Would delete:** %d  |  **Report-only:** %d  |  "
-        "**Skipped:** %d"
+        headline,
+        "",
+        "| | |",
+        "| --- | --- |",
+        "| **Mode** | %s |" % mode,
+        "| **Generated** | %s |" % summary["timestamp"],
+        "| **Regions scanned** | %d |" % summary["regions_scanned"],
+        "| **Realized savings** | %s/mo |" % summary["realized_monthly_savings"],
+        "| **Potential savings** | %s/mo |" % summary["potential_monthly_savings"],
+        "",
+        "**Actions:** %d deleted · %d would delete · %d report-only · %d skipped"
         % (
             summary["deleted"],
             summary["would_delete"],
             summary["report_only"],
             summary["skipped"],
         ),
-        "- **Realized savings:** %s/mo" % summary["realized_monthly_savings"],
-        "- **Potential savings:** %s/mo" % summary["potential_monthly_savings"],
         "",
-        "| Type | ID | Region | ~$/mo | Action | Reason / Skip |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "## Savings by type",
+        "",
+        "| Type | Est. $/mo |",
+        "| --- | --- |",
     ]
-    for f in findings:
-        note = f["skip_reason"] or f["reason"]
-        lines.append(
-            "| %s | %s | %s | $%.2f | %s | %s |"
-            % (f["type"], f["id"], f["region"], f["monthly_cost"], f["action"], note)
-        )
+    for rtype, amount in summary["savings_by_type"].items():
+        lines.append("| %s | %s |" % (rtype, amount))
+
+    if findings:
+        lines += [
+            "",
+            "## Resources",
+            "",
+            "| Type | ID | Region | ~$/mo | Action | Reason / Skip |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for f in sorted(findings, key=lambda x: x["monthly_cost"], reverse=True):
+            note = f["skip_reason"] or f["reason"]
+            lines.append(
+                "| %s | %s | %s | $%.2f | %s | %s |"
+                % (
+                    f["type"],
+                    f["id"],
+                    f["region"],
+                    f["monthly_cost"],
+                    f["action"],
+                    note,
+                )
+            )
     return "\n".join(lines)
 
 
@@ -555,5 +593,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     report_uri = _persist_report(report, config)
     _notify(report, config, report_uri)
 
-    summary: dict[str, Any] = report["summary"]
-    return summary
+    # Return the full report (summary + per-resource details + rendered
+    # Markdown) so callers like the scan-once workflow can show a readable
+    # report without depending on the (ephemeral) SNS subscription.
+    return report

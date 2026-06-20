@@ -406,10 +406,13 @@ class TestLambdaHandler:
         with patch.object(
             hunter.boto3, "client", side_effect=lambda s, **k: clients[s]
         ):
-            summary = lambda_handler({}, None)
+            report = lambda_handler({}, None)
 
-        assert summary["zombies_found"] == 0
-        assert summary["dry_run"] is True
+        # Handler returns the full report (summary + details + markdown).
+        assert report["summary"]["zombies_found"] == 0
+        assert report["summary"]["dry_run"] is True
+        assert report["markdown"].startswith("# FinOps Zombie Hunter Report")
+        assert "details" in report
         clients["sns"].publish.assert_called_once()
         clients["s3"].put_object.assert_not_called()
 
