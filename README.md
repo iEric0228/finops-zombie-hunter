@@ -63,6 +63,7 @@ finops-zombie-hunter/
 │   ├── hunter.py                     # Core Lambda function (zombie detection)
 │   └── requirements.txt              # Python dependencies (boto3)
 ├── terraform/
+│   ├── bootstrap/                   # One-time: creates the S3 + DynamoDB state backend
 │   ├── environments/
 │   │   └── dev/                      # Root module (orchestrates all modules)
 │   │       ├── main.tf               # Module composition & wiring
@@ -207,13 +208,34 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
    ```bash
    cp terraform/environments/dev/terraform.tfvars.example terraform/environments/dev/terraform.tfvars
    ```
+4. **Bootstrap the remote-state backend (one-time per account).** The deploy and
+   scan workflows store state in the S3 bucket + DynamoDB table named in
+   `backend.tf`, which must exist *before* `terraform init` can use them. With AWS
+   credentials available locally:
+   ```bash
+   terraform -chdir=terraform/bootstrap init
+   terraform -chdir=terraform/bootstrap apply
+   ```
+   This creates the `finops-zombie-hunter` state bucket and `terraform-lock-finops`
+   lock table. Skip this step if they already exist.
 
 ### Run via CI/CD (recommended)
+
+> Requires the state backend from **Setup step 4** to exist first — otherwise
+> `terraform init` fails with `NoSuchBucket`.
 
 - **Plan only:** Push to `main` (automatic)
 - **Apply:** Actions > `Terraform Deploy` > Run workflow > action: `apply`
 - **Scan once:** Actions > `Scan Once` > Run workflow (deploys, scans, destroys automatically)
 - **Destroy:** Actions > `Terraform Deploy` > Run workflow > action: `destroy`
+
+> **About Scan Once:** it is fully ephemeral — deploy → one scan → destroy
+> everything (including the report bucket, which is `force_destroy` so the
+> teardown succeeds even with a report written to it). Read results in the
+> workflow **run summary** and the uploaded `scan-results` artifact; the S3
+> report does not persist. The SNS topic is also torn down immediately, so the
+> subscription-confirmation email may not arrive in time — use **Apply** instead
+> if you want a standing topic and a persistent report bucket.
 
 ### Local development (Python)
 
@@ -231,10 +253,13 @@ uv run pytest -q              # unit tests
 ### Run locally (Terraform)
 
 ```bash
+# One-time: create the S3/DynamoDB backend (skip if it already exists)
+terraform -chdir=terraform/bootstrap init && terraform -chdir=terraform/bootstrap apply
+
 cd terraform/environments/dev
-terraform init
+terraform init      # initializes the S3 backend created above
 terraform plan
-terraform apply   # Only when ready
+terraform apply     # Only when ready
 ```
 
 ### Configuration
