@@ -81,7 +81,9 @@ class TestHelpers:
         assert _age_days(None) is None
 
     def test_age_days_counts_whole_days(self):
-        assert _age_days(_old()) >= 29
+        age = _age_days(_old())
+        assert age is not None
+        assert age >= 29
 
 
 # --- EBS volumes (deletable) ----------------------------------------------
@@ -177,6 +179,25 @@ class TestCheckEbsZombies:
 
         assert check_ebs_zombies(ec2, "us-east-1", True, 7) == []
 
+    def test_volume_exactly_at_threshold_is_not_skipped(self, ec2):
+        # Guard is `age < min_age_days`, so a volume AT the threshold is eligible.
+        _paginated(
+            ec2,
+            {
+                "Volumes": [
+                    {
+                        "VolumeId": "vol-boundary",
+                        "Size": 10,
+                        "CreateTime": datetime.now(UTC) - timedelta(days=7, minutes=1),
+                    },
+                ]
+            },
+        )
+
+        findings = check_ebs_zombies(ec2, "us-east-1", dry_run=True, min_age_days=7)
+
+        assert findings[0]["action"] == "would_delete"
+
 
 # --- Elastic IPs (deletable) ----------------------------------------------
 
@@ -271,6 +292,16 @@ class TestCheckRdsZombies:
 
         assert findings[0]["action"] == "report_only"
 
+    def test_never_deletes_an_instance(self, rds, cw):
+        # RDS is report-only: a future edit adding deletion here must fail CI.
+        _paginated(rds, {"DBInstances": [{"DBInstanceIdentifier": "db-idle"}]})
+        cw.get_metric_statistics.return_value = {"Datapoints": [{"Average": 0}]}
+
+        findings = check_rds_zombies(rds, cw, "us-east-1")
+
+        assert all(f["action"] == "report_only" for f in findings)
+        rds.delete_db_instance.assert_not_called()
+
 
 # --- NAT gateways (report-only) -------------------------------------------
 
@@ -290,6 +321,16 @@ class TestCheckNatGwZombies:
         cw.get_metric_statistics.return_value = {"Datapoints": [{"Sum": 1048576}]}
 
         assert check_nat_gw_zombies(ec2, cw, "us-east-1") == []
+
+    def test_never_deletes_a_gateway(self, ec2, cw):
+        # NAT is report-only: a future edit adding deletion here must fail CI.
+        _paginated(ec2, {"NatGateways": [{"NatGatewayId": "nat-idle"}]})
+        cw.get_metric_statistics.return_value = {"Datapoints": [{"Sum": 0}]}
+
+        findings = check_nat_gw_zombies(ec2, cw, "us-east-1")
+
+        assert all(f["action"] == "report_only" for f in findings)
+        ec2.delete_nat_gateway.assert_not_called()
 
 
 # --- Report aggregation ----------------------------------------------------
