@@ -42,12 +42,13 @@ module "report_bucket" {
 }
 
 module "lambda" {
-  source        = "../../modules/lambda"
-  function_name = "FinOps-Zombie-Hunter-${var.environment}"
-  iam_role_arn  = module.iam.lambda_exec_role_arn
-  sns_topic_arn = module.sns.topic_arn
-  timeout       = var.lambda_timeout
-  memory_size   = var.lambda_memory_size
+  source               = "../../modules/lambda"
+  function_name        = "FinOps-Zombie-Hunter-${var.environment}"
+  iam_role_arn         = module.iam.lambda_exec_role_arn
+  sns_topic_arn        = module.sns.topic_arn
+  timeout              = var.lambda_timeout
+  memory_size          = var.lambda_memory_size
+  reserved_concurrency = var.lambda_reserved_concurrency
   env_vars = {
     "ENV"           = var.environment
     "DRY_RUN"       = tostring(var.dry_run)
