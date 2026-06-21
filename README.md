@@ -92,7 +92,7 @@ finops-zombie-hunter/
 - **Lambda Function (`src/hunter.py`):** Scans all AWS regions for zombie EBS volumes, idle RDS instances, unused NAT Gateways, and unattached EIPs using CloudWatch metrics. Deletes the two safe-to-remove types (EBS, EIP) when `DRY_RUN=false`, subject to an age threshold and a `keep` tag exclusion. Aggregates everything into a structured report.
 - **IAM Module:** Least-privilege role with separate policies for read-only scanning, SNS publishing (scoped to topic ARN), report writing (scoped to the bucket's `reports/` prefix), and logging. Delete permissions are attached **only** when `enable_destroy` is set (derived from `!dry_run`).
 - **Lambda Module:** Python 3.12 runtime, 256MB memory, 300s timeout, reserved concurrency of 1, managed CloudWatch Log Group with 14-day retention.
-- **SNS Module:** KMS-encrypted topic with email subscription for scan result notifications.
+- **SNS Module:** KMS-encrypted topic (AWS-managed key) with an optional email subscription for scan notifications.
 - **Report Bucket Module:** Private S3 bucket (public access blocked, versioned, SSE-S3 encrypted, TLS-only via bucket policy) storing each run's JSON + Markdown report, with a lifecycle rule that expires old reports.
 - **Event Module:** EventBridge rule using configurable schedule expression (default: weekly Sunday midnight).
 
@@ -162,7 +162,7 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
 | **Authentication** | GitHub OIDC -> AWS STS (no static credentials) |
 | **IAM Scoping** | Read-only scanning; SNS publish scoped to topic ARN; report writes scoped to bucket `reports/` prefix; logs scoped to log group ARN |
 | **Gated deletion** | Delete permissions attached only when `enable_destroy = !dry_run`; runtime age + tag guards |
-| **Encryption** | SNS topic uses a customer-managed KMS key (auto-rotation); report bucket uses SSE-S3 |
+| **Encryption** | SNS topic uses the AWS-managed KMS key (`alias/aws/sns`); report bucket uses SSE-S3 |
 | **Report bucket** | Public access blocked, versioned, TLS-only (bucket policy denies non-HTTPS), lifecycle expiry |
 | **Dry-Run** | Default mode prevents any resource deletion |
 | **Concurrency** | `lambda_reserved_concurrency` (default `-1`/unreserved; set to a positive value to cap parallel runs on accounts whose limit allows it) |
