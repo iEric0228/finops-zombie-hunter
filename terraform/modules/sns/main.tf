@@ -1,17 +1,11 @@
-resource "aws_kms_key" "sns" {
-  description             = "Customer managed key for SNS topic encryption"
-  deletion_window_in_days = 7
-  enable_key_rotation     = true
-}
-
-resource "aws_kms_alias" "sns" {
-  name          = "alias/zombie-hunter-sns"
-  target_key_id = aws_kms_key.sns.key_id
-}
-
+# Encrypt the topic with the AWS-managed SNS key (alias/aws/sns). There is no
+# customer-managed key to provision, pay for, or schedule for deletion — which
+# suits the ephemeral deploy/scan/destroy lifecycle (a CMK would otherwise leave
+# a 7-day pending-deletion key behind on every teardown). The AWS-managed key is
+# auto-rotated by AWS and free.
 resource "aws_sns_topic" "zombie_notifications" {
   name              = "ZombieHunterNotifications"
-  kms_master_key_id = aws_kms_key.sns.arn
+  kms_master_key_id = "alias/aws/sns"
 }
 
 # Only subscribe when an email is provided. With no email the topic still
