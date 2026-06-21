@@ -16,9 +16,21 @@ variable "environment" {
 }
 
 variable "notification_email" {
-  description = "Email address for SNS zombie scan notifications"
+  description = "Email address for SNS zombie scan notifications. Empty = deploy without an email subscription (reports still go to S3 + the run summary)."
   type        = string
+  default     = ""
   sensitive   = true
+
+  validation {
+    condition     = var.notification_email == "" || can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.notification_email))
+    error_message = "notification_email must be a valid email address or empty."
+  }
+}
+
+variable "lambda_reserved_concurrency" {
+  description = "Reserved concurrent executions for the Lambda. -1 = unreserved (required on accounts with a low concurrency limit; reserving any value needs >= 10 unreserved to remain)."
+  type        = number
+  default     = -1
 }
 
 variable "schedule_expression" {

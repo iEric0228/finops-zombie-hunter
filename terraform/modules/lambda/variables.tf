@@ -30,3 +30,9 @@ variable "memory_size" {
   type        = number
   default     = 256
 }
+
+variable "reserved_concurrency" {
+  description = "Reserved concurrent executions. -1 leaves the function unreserved. Reserving any positive value requires the account to keep >= 10 unreserved executions, so accounts with a low concurrency limit must leave this at -1."
+  type        = number
+  default     = -1
+}

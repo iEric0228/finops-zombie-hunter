@@ -165,7 +165,7 @@ action taken (`deleted` / `would_delete` / `report_only` / `skipped` with reason
 | **Encryption** | SNS topic uses a customer-managed KMS key (auto-rotation); report bucket uses SSE-S3 |
 | **Report bucket** | Public access blocked, versioned, TLS-only (bucket policy denies non-HTTPS), lifecycle expiry |
 | **Dry-Run** | Default mode prevents any resource deletion |
-| **Concurrency** | `reserved_concurrent_executions = 1` prevents parallel runs |
+| **Concurrency** | `lambda_reserved_concurrency` (default `-1`/unreserved; set to a positive value to cap parallel runs on accounts whose limit allows it) |
 | **CI/CD** | Push to main only plans (no auto-apply), manual approval required for apply |
 | **Scanning** | Trivy (IaC), ruff (lint + bandit `S` security rules), mypy `--strict` (types), **pytest** in CI pipeline |
 | **State** | S3 backend with encryption, versioning, DynamoDB locking |
@@ -268,13 +268,14 @@ terraform apply     # Only when ready
 |----------|---------|-------------|
 | `aws_region` | `us-east-1` | AWS region |
 | `environment` | `dev` | Environment name (dev/staging/prod) |
-| `notification_email` | - | Email for SNS notifications (required) |
+| `notification_email` | `""` | Email for SNS notifications. Optional — empty deploys with no email subscription (reports still go to S3 + the run summary) |
 | `schedule_expression` | `cron(0 0 ? * SUN *)` | EventBridge schedule |
 | `dry_run` | `true` | Dry-run mode. `true` = detect/report only; `false` = also delete eligible EBS/EIP and attach delete IAM |
 | `min_age_days` | `7` | Minimum age before an unattached resource is eligible for deletion |
 | `report_retention_days` | `90` | Days to keep reports in S3 before lifecycle expiry |
 | `lambda_timeout` | `300` | Lambda timeout in seconds |
 | `lambda_memory_size` | `256` | Lambda memory in MB |
+| `lambda_reserved_concurrency` | `-1` | Reserved concurrency. `-1` = unreserved. Accounts with a low concurrency limit (e.g. 10) must leave this at `-1` |
 
 > **To actually delete resources:** set `dry_run = false` in your tfvars and apply. This both enables the deletion code path and attaches the scoped delete permissions to the role. Start with a high `min_age_days` and review a dry-run report first.
 
