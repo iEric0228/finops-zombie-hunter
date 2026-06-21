@@ -54,7 +54,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "reports" {
 }
 
 # Reject any non-TLS access to the report objects.
+#
+# Apply the policy LAST, after the other bucket sub-resources. On accounts where
+# S3 is throttling (the lifecycle call can take ~a minute), running the policy
+# in parallel with the others and S3's read-after-write consistency can make the
+# policy read-back fail with "couldn't find resource". Serializing lets the new
+# bucket settle first so the policy write + read-back succeed.
 resource "aws_s3_bucket_policy" "reports" {
+  depends_on = [
+    aws_s3_bucket_public_access_block.reports,
+    aws_s3_bucket_versioning.reports,
+    aws_s3_bucket_server_side_encryption_configuration.reports,
+    aws_s3_bucket_lifecycle_configuration.reports,
+  ]
+
   bucket = aws_s3_bucket.reports.id
   policy = jsonencode({
     Version = "2012-10-17"
