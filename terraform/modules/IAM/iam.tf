@@ -45,6 +45,9 @@ resource "aws_iam_role_policy" "read_only" {
     Version = "2012-10-17"
     Statement = [
       {
+        # Account-wide zombie discovery requires unscoped reads; these
+        # Describe/GetMetricStatistics APIs do not support resource-level
+        # permissions anyway.
         Sid    = "DescribeResources"
         Effect = "Allow"
         Action = [
@@ -126,6 +129,8 @@ resource "aws_iam_role_policy" "destroy" {
     Version = "2012-10-17"
     Statement = [
       {
+        # Targets are discovered at runtime (zombies are by definition
+        # untagged/unowned), so ARN/tag scoping is not possible here.
         Sid    = "DeleteZombies"
         Effect = "Allow"
         Action = [
